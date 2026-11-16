@@ -126,6 +126,14 @@
   .setor-track{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden}
   .setor-fill{height:100%;border-radius:99px}
   .setor-vazio{color:var(--muted);font-size:13px}
+  .setor-titulo{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  .setor-row{cursor:pointer;border-radius:8px;padding:6px 8px;margin:-6px -8px;transition:background .15s,opacity .15s}
+  .setor-row:hover{background:rgba(255,255,255,.05)}
+  .setor-row:focus-visible{outline:2px solid #7c3aed;outline-offset:1px}
+  .setor-row.ativo{background:rgba(124,58,237,.18);box-shadow:inset 0 0 0 1px rgba(124,58,237,.6)}
+  .setor-row.apagado{opacity:.45}
+  .setor-chip{margin-left:auto;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.6);color:var(--white);
+    border-radius:99px;padding:3px 10px;font-size:12px;font-family:inherit;text-transform:none;letter-spacing:0;cursor:pointer}
   @media(max-width:1100px){.setor-lista{grid-template-columns:1fr}}
   @media(max-width:800px){.se-corpo{grid-template-columns:1fr}.se-setores{border-left:0;border-top:1px solid var(--border)}}
 </style>
@@ -139,7 +147,7 @@
       <div class="logo-sub">Gerado em 16/11/2026</div>
     </div>
   </div>
-  <div class="header-date">16/11/2026 · 14:08</div>
+  <div class="header-date">16/11/2026 · 14:12</div>
 </header>
 
 <nav class="nav">
@@ -165,7 +173,7 @@
   <div id="filtro-data-info" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:14px;padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px"></div>
   <div class="alert alert-red" id="alerta-criticos" style="margin-bottom:20px"><span class="alert-icon">⚠️</span><div><div class="alerta-linha" data-filial="se"><strong>Millena com adesão crítica:</strong> apenas 5 de 22 funcionários cadastrados realizaram envio (22,7%). Requer ação imediata de acompanhamento.</div></div></div>
   <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em 16/11/2026 14:08</div>
+    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em 16/11/2026 14:12</div>
   </div>
   <div class="empresa-toggle" style="margin-bottom:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -261,8 +269,9 @@
       </div>
       </div>
       <div class="se-setores">
-        <div class="setor-titulo">Adesão por setor <span>enviaram / cadastrados</span></div>
-        <div class="setor-lista"><div class="setor-row"><div class="setor-top"><span class="setor-nome">Conciliação</span><span class="setor-num"><strong>2</strong>/3 · 6 ativ. · <strong style="color:#f59e0b">67%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:67%;background:#f59e0b"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Fiscal</span><span class="setor-num"><strong>2</strong>/3 · 7 ativ. · <strong style="color:#f59e0b">67%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:67%;background:#f59e0b"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Conferência de Caixa</span><span class="setor-num"><strong>1</strong>/4 · 2 ativ. · <strong style="color:#ef4444">25%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:25%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contas a Pagar</span><span class="setor-num"><strong>0</strong>/4 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contabilidade</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contábil/Fiscal</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Gestão</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Controle Fiscal</span><span class="setor-num"><strong>0</strong>/1 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Pricing</span><span class="setor-num"><strong>0</strong>/1 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div></div>
+        <div class="setor-titulo">Adesão por setor <span>enviaram / cadastrados · clique para filtrar</span>
+          <button id="setor-chip" class="setor-chip" style="display:none" onclick="filtrarSetor('')">Setor: <b></b> ✕</button></div>
+        <div class="setor-lista" id="setor-lista"><div class="setor-row"><div class="setor-top"><span class="setor-nome">Conciliação</span><span class="setor-num"><strong>2</strong>/3 · 6 ativ. · <strong style="color:#f59e0b">67%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:67%;background:#f59e0b"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Fiscal</span><span class="setor-num"><strong>2</strong>/3 · 7 ativ. · <strong style="color:#f59e0b">67%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:67%;background:#f59e0b"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Conferência de Caixa</span><span class="setor-num"><strong>1</strong>/4 · 2 ativ. · <strong style="color:#ef4444">25%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:25%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contas a Pagar</span><span class="setor-num"><strong>0</strong>/4 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contabilidade</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Contábil/Fiscal</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Gestão</span><span class="setor-num"><strong>0</strong>/2 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Controle Fiscal</span><span class="setor-num"><strong>0</strong>/1 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div><div class="setor-row"><div class="setor-top"><span class="setor-nome">Pricing</span><span class="setor-num"><strong>0</strong>/1 · 0 ativ. · <strong style="color:#ef4444">0%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:2%;background:#ef4444"></div></div></div></div>
       </div>
       </div>
     </div>
@@ -613,23 +622,23 @@
   <div class="cards">
     <div class="card al">
       <div class="card-label">Total Aprovações</div>
-      <div class="card-value">15</div>
-      <div class="card-detail">Millena: 15</div>
+      <div class="card-value" id="apr-val-total">15</div>
+      <div class="card-detail apr-det">Millena: 15</div>
     </div>
     <div class="card green">
       <div class="card-label">Aprovados</div>
-      <div class="card-value">0</div>
-      <div class="card-detail">Millena: 0</div>
+      <div class="card-value" id="apr-val-aprov">0</div>
+      <div class="card-detail apr-det">Millena: 0</div>
     </div>
     <div class="card orange">
       <div class="card-label">Pendentes</div>
-      <div class="card-value">15</div>
-      <div class="card-detail">Millena: 15</div>
+      <div class="card-value" id="apr-val-pend">15</div>
+      <div class="card-detail apr-det">Millena: 15</div>
     </div>
     <div class="card red">
       <div class="card-label">Reprovados</div>
-      <div class="card-value">0</div>
-      <div class="card-detail">Millena: 0</div>
+      <div class="card-value" id="apr-val-reprov">0</div>
+      <div class="card-detail apr-det">Millena: 0</div>
     </div>
   </div>
 
@@ -752,12 +761,17 @@ function _registroEmpresa(raw){
   return map;
 }
 window._registros={};
-function _calcularEmpresaFiltrada(empKey,de,ate,turno){
+window._setorFiltro='';
+function _setorDe(p){return ((p&&p.setor)||'').toString().trim()||'(sem setor)';}
+function _calcularEmpresaFiltrada(empKey,de,ate,turno,setorF){
   const raw=DATA[empKey];
-  if(!de && !ate && (!turno||turno==='todos')) return raw;
+  if(setorF===undefined) setorF=window._setorFiltro;
+  if(!de && !ate && (!turno||turno==='todos') && !setorF) return raw;
   if(!window._registros[empKey]) window._registros[empKey]=_registroEmpresa(raw);
-  const registro=window._registros[empKey];
-  const atividadesFiltradas=(raw.atividades||[]).filter(a=>_passaFiltroAtividade(a,de,ate,turno));
+  let registro=window._registros[empKey];
+  if(setorF) registro=new Map([...registro].filter(([n,info])=>_setorDe(info)===setorF));
+  const atividadesFiltradas=(raw.atividades||[]).filter(a=>_passaFiltroAtividade(a,de,ate,turno)
+    && (!setorF || registro.has(_normJS(a.funcionario))));
   const contagem={};
   atividadesFiltradas.forEach(a=>{const n=_normJS(a.funcionario); contagem[n]=(contagem[n]||0)+1;});
   const enviaram_list=[], nao_enviaram_list=[];
@@ -772,7 +786,7 @@ function _calcularEmpresaFiltrada(empKey,de,ate,turno){
   enviaram_list.forEach(p=>{const c=p.cargo||''; if(c && cargoMap[c]){cargoMap[c].enviaram++; cargoMap[c].atividades+=p.atividades;}});
   const cargo_data=Object.entries(cargoMap).map(([cargo,d])=>({cargo,total:d.total,enviaram:d.enviaram,atividades:d.atividades,pct:Math.round(d.enviaram/Math.max(d.total,1)*100)})).sort((a,b)=>b.atividades-a.atividades);
   const envios_por_data=_computeEnviosPorData(atividadesFiltradas);
-  return {...raw, enviaram:enviaram_list.length, nao_enviaram:nao_enviaram_list.length, total_atividades:atividadesFiltradas.length, enviaram_list, nao_enviaram_list, cargo_data, atividades:atividadesFiltradas, envios_por_data};
+  return {...raw, total:setorF?registro.size:raw.total, enviaram:enviaram_list.length, nao_enviaram:nao_enviaram_list.length, total_atividades:atividadesFiltradas.length, enviaram_list, nao_enviaram_list, cargo_data, atividades:atividadesFiltradas, envios_por_data};
 }
 function _valOuVazioJS(v){v=(v||'').toString().trim(); return v?v:'(vazio)';}
 function _contarCampoJS(atividades,campo){
@@ -815,7 +829,7 @@ function _recalcularFiltro(de,ate,turno){
     sergipe:_calcularEmpresaFiltrada('sergipe',de,ate,turno),
     recife:_calcularEmpresaFiltrada('recife',de,ate,turno),
   };
-  const ativo=!!(de||ate||(turno&&turno!=='todos'));
+  const ativo=!!(de||ate||(turno&&turno!=='todos')||window._setorFiltro);
   const atvTotal=[...window._empDataAtual.alagoas.atividades,...window._empDataAtual.sergipe.atividades,...window._empDataAtual.recife.atividades];
   window._analiseAtual={
     alagoas: ativo?_analiseFromAtividades(window._empDataAtual.alagoas.atividades):(DATA.analise&&DATA.analise.alagoas),
@@ -843,15 +857,18 @@ function _atualizarInfoFiltro(){
   const ate=document.getElementById('filtro-data-ate').value;
   const turno=document.getElementById('filtro-turno').value;
   const box=document.getElementById('filtro-data-info');
-  if(!de && !ate && (!turno||turno==='todos')){ box.style.display='none'; return; }
+  const setorF=window._setorFiltro;
+  if(!de && !ate && (!turno||turno==='todos') && !setorF){ box.style.display='none'; return; }
   const fmt=iso=>iso?iso.split('-').reverse().join('/'):'';
   const partes=[];
   if(de && ate) partes.push('período '+fmt(de)+' até '+fmt(ate));
   else if(de) partes.push('a partir de '+fmt(de));
   else if(ate) partes.push('até '+fmt(ate));
   if(turno && turno!=='todos') partes.push('turno '+_TURNO_LABEL[turno]);
+  if(setorF) partes.push('setor '+setorF);
   let texto='📅 Filtrando por '+partes.join(' · ');
-  texto+=' — cartões, tabelas, gráficos e análise abaixo consideram apenas atividades que atendem a esse filtro. (Aprovações e Resumo não são afetados.)';
+  texto+=' — cartões, tabelas, gráficos e análise consideram apenas esse filtro.'
+    +(setorF?' Aprovações também são filtradas pelo setor; o Resumo do relatório não.':' (Aprovações e Resumo não são afetados.)');
   box.textContent=texto;
   box.style.display='block';
 }
@@ -888,6 +905,7 @@ function limparFiltroData(){
   document.getElementById('filtro-data-de').value='';
   document.getElementById('filtro-data-ate').value='';
   document.getElementById('filtro-turno').value='todos';
+  window._setorFiltro='';
   _recalcularFiltro('','','todos');
   _salvarFiltroLocal('','','todos');
   populate();
@@ -897,6 +915,50 @@ function limparFiltroData(){
   _atualizarInfoFiltro();
 }
 
+function renderSetores(){
+  const box=document.getElementById('setor-lista'); if(!box) return;
+  const de=document.getElementById('filtro-data-de').value;
+  const ate=document.getElementById('filtro-data-ate').value;
+  const turno=document.getElementById('filtro-turno').value;
+  const d=_calcularEmpresaFiltrada('sergipe',de,ate,turno,'');
+  const reg=_registroEmpresa(DATA.sergipe), env={};
+  (d.enviaram_list||[]).forEach(p=>env[_normJS(p.nome)]=p.atividades||0);
+  const m={};
+  reg.forEach((info,n)=>{const st=_setorDe(info); const x=m[st]||(m[st]={setor:st,total:0,enviaram:0,atividades:0});
+    x.total++; if(n in env){x.enviaram++; x.atividades+=env[n];}});
+  const lista=Object.values(m).map(x=>({...x,pct:Math.round(x.enviaram/Math.max(x.total,1)*100)}))
+    .sort((a,b)=>(b.enviaram/b.total-a.enviaram/a.total)||(b.total-a.total)||a.setor.localeCompare(b.setor));
+  const sel=window._setorFiltro;
+  box.innerHTML=lista.map(x=>{const cor=x.pct>=70?'#10b981':(x.pct>=30?'#f59e0b':'#ef4444');
+    const cls='setor-row'+(sel?(x.setor===sel?' ativo':' apagado'):'');
+    return `<div class="${cls}" data-setor="${esc(x.setor)}" role="button" tabindex="0" title="Filtrar a página por ${esc(x.setor)}"><div class="setor-top"><span class="setor-nome">${esc(x.setor)}</span><span class="setor-num"><strong>${x.enviaram}</strong>/${x.total} · ${x.atividades} ativ. · <strong style="color:${cor}">${x.pct}%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:${Math.max(x.pct,2)}%;background:${cor}"></div></div></div>`;}).join('')
+    || '<div class="setor-vazio">Sem setores no cadastro.</div>';
+  const chip=document.getElementById('setor-chip');
+  if(chip){chip.style.display=sel?'':'none'; chip.querySelector('b').textContent=sel;}
+}
+function filtrarSetor(st){
+  window._setorFiltro=(window._setorFiltro===st)?'':(st||'');
+  aplicarFiltroData();
+}
+function _filtrarAprovacoes(){
+  const st=window._setorFiltro;
+  const reg=_registroEmpresa(DATA.sergipe);
+  const raw=(DATA.aprovacoes&&DATA.aprovacoes.sergipe&&DATA.aprovacoes.sergipe.itens)||[];
+  const itens=st?raw.filter(a=>{const i=reg.get(_normJS(a.funcionario)); return i&&_setorDe(i)===st;}):raw;
+  const cont=k=>itens.filter(a=>(a.status||'').toLowerCase().startsWith(k)).length;
+  const put=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=v;};
+  put('apr-val-total',itens.length); put('apr-val-aprov',cont('aprov'));
+  put('apr-val-pend',cont('pend')); put('apr-val-reprov',cont('reprov'));
+  document.querySelectorAll('.apr-det').forEach(el=>el.style.display=st?'none':'');
+  return itens;
+}
+document.addEventListener('click',e=>{
+  const r=e.target.closest&&e.target.closest('.setor-row'); if(r) filtrarSetor(r.dataset.setor);
+});
+document.addEventListener('keydown',e=>{
+  const r=e.target.closest&&e.target.closest('.setor-row');
+  if(r&&(e.key==='Enter'||e.key===' ')){e.preventDefault(); filtrarSetor(r.dataset.setor);}
+});
 function setor(s){return s==='Técnico'?'<span class="setor-tag setor-tec">Técnico</span>':'<span class="setor-tag setor-corp">Corporativo</span>';}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 window._chartBars=[];
@@ -1419,6 +1481,7 @@ function populate(){
   setHtml('env-al-body',EMP('alagoas').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
   setHtml('env-se-body',EMP('sergipe').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
   setHtml('env-rec-body',EMP('recife').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
+  renderSetores();
   renderResumo('resumo');
   renderResumo('anl-resumo');
   renderAnalise();
@@ -1432,7 +1495,7 @@ function populate(){
   const aprRow=a=>{const rel=a.tem_relatorio?'<span style="color:#10b981;font-size:11px">Sim</span>':'<span style="color:#ef4444;font-size:11px">Não</span>';return `<tr><td><strong style="font-size:12px">${a.funcionario}</strong></td><td style="font-size:11px;color:var(--subtle)">${a.cargo}</td><td>${a.atividade}</td><td>${apr_status_badge(a.status)}</td><td style="font-size:11px;color:var(--muted)">${a.aprovador}</td><td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">${a.data}</td><td>${rel}</td></tr>`;};
   if(DATA.aprovacoes){
     if(DATA.aprovacoes.alagoas) setHtml('apr-al-body',DATA.aprovacoes.alagoas.itens.map(aprRow));
-    if(DATA.aprovacoes.sergipe) setHtml('apr-se-body',DATA.aprovacoes.sergipe.itens.map(aprRow));
+    if(DATA.aprovacoes.sergipe) setHtml('apr-se-body',_filtrarAprovacoes().map(aprRow));
     if(DATA.aprovacoes.recife)  setHtml('apr-rec-body',DATA.aprovacoes.recife.itens.map(aprRow));
   }
 }
