@@ -40,7 +40,10 @@ def _get(params):
             if r.headers.get("Content-Encoding") == "gzip":
                 corpo = gzip.decompress(corpo)
     except urllib.error.HTTPError as e:
-        msg = e.read()[:300].decode("utf-8", "replace")
+        corpo = e.read()
+        if e.headers.get("Content-Encoding") == "gzip" or corpo[:2] == b"\x1f\x8b":
+            corpo = gzip.decompress(corpo)
+        msg = corpo[:300].decode("utf-8", "replace")
         sys.exit(f"ERRO {e.code} da API ({params.get('recurso', 'atividades')}): {msg}")
     return json.loads(corpo.decode("utf-8"))
 
