@@ -147,7 +147,7 @@
       <div class="logo-sub">Gerado em 16/11/2026</div>
     </div>
   </div>
-  <div class="header-date">16/11/2026 · 14:12</div>
+  <div class="header-date">16/11/2026 · 14:13</div>
 </header>
 
 <nav class="nav">
@@ -173,7 +173,7 @@
   <div id="filtro-data-info" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:14px;padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px"></div>
   <div class="alert alert-red" id="alerta-criticos" style="margin-bottom:20px"><span class="alert-icon">⚠️</span><div><div class="alerta-linha" data-filial="se"><strong>Millena com adesão crítica:</strong> apenas 5 de 22 funcionários cadastrados realizaram envio (22,7%). Requer ação imediata de acompanhamento.</div></div></div>
   <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em 16/11/2026 14:12</div>
+    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em 16/11/2026 14:13</div>
   </div>
   <div class="empresa-toggle" style="margin-bottom:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -243,7 +243,7 @@
         <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
         <div style="text-align:center"><span id="p-seg" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.04em">SEG</div></div>
       </div>
-      <div class="card-detail" style="color:var(--white)">Prazo a definir</div>
+      <div class="card-detail" style="color:var(--white)">Prazo 30/11/2026</div>
     </div>
   </div>
 
@@ -1500,7 +1500,7 @@ function populate(){
   }
 }
 function calcularPrazo(){
-  const prazo = new Date('');
+  const prazo = new Date('2026-11-30T23:59:59');
   if(isNaN(prazo)) return;  // sem prazo no config.json: fica "--"
   const agora = new Date();
   const diff  = prazo - agora;
