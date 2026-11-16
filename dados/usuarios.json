@@ -1,0 +1,181 @@
+{
+ "atualizado_em": "16/11/2026 14:45",
+ "usuarios": [
+  {
+   "nome": "Alan Pereira",
+   "cargo": "Analista Administrativo Júnior",
+   "empresa": "Millena",
+   "setor": "Fiscal",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Anafaly Fernanda",
+   "cargo": "Auxiliar Administrativo",
+   "empresa": "Millena",
+   "setor": "Contabilidade",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Betânia",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conferência de Caixa",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Bianka Valéria",
+   "cargo": "Coordenadora",
+   "empresa": "Millena",
+   "setor": "Gestão",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Bárbara Kimberlly",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Contas a Pagar",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Carla Vanessa",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conciliação",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Carolina Nascimento",
+   "cargo": "Coordenadora",
+   "empresa": "Millena",
+   "setor": "Contábil/Fiscal",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Danilo Monteiro",
+   "cargo": "Analista Administrativo Pleno",
+   "empresa": "Millena",
+   "setor": "Contabilidade",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Elis Maria",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Contas a Pagar",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Karla Fernanda",
+   "cargo": "Gerente",
+   "empresa": "Millena",
+   "setor": "Gestão",
+   "perfil": "Gestor",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Kleverton Roberto",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conferência de Caixa",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Lavinnia Melo",
+   "cargo": "Auxiliar Administrativo",
+   "empresa": "Millena",
+   "setor": "Fiscal",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Luiza Aroucha",
+   "cargo": "Auxiliar Administrativo",
+   "empresa": "Millena",
+   "setor": "Fiscal",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Luísa Valeria",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Contas a Pagar",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Marcella Ancantara",
+   "cargo": "Assistente Administrativo Pleno",
+   "empresa": "Millena",
+   "setor": "Pricing",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Maria Beatriz",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conciliação",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Maria José",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conferência de Caixa",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Nalanda Rayssa",
+   "cargo": "Auxiliar Administrativo",
+   "empresa": "Millena",
+   "setor": "Controle Fiscal",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Rayanne Walquiria",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Contas a Pagar",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Rayssa Layane",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conciliação",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Thatiana Patricia",
+   "cargo": "Assistente Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conferência de Caixa",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Thomás Luiz",
+   "cargo": "Gerente",
+   "empresa": "Millena",
+   "setor": "Contábil/Fiscal",
+   "perfil": "Gestor",
+   "status": "Ativo"
+  }
+ ]
+}

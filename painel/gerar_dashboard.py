@@ -1,0 +1,2413 @@
+"""
+gerar_dashboard.py
+Lê os Excel da Millena (Relatório, Usuários e Aprovações)
+e gera Dashboard_Millena_DDMMAAAA.html. Copia do painel da Novatec: a Millena ocupa
+o slot 'se' (antes Millena); os slots 'al' e 'rec' ficam vazios e escondidos no HTML.
+"""
+import openpyxl, json, webbrowser, unicodedata, zipfile
+from pathlib import Path
+from datetime import datetime
+
+
+def _norm(nome):
+    """Normaliza nome para comparação: strip, lower, sem acentos."""
+    if not nome:
+        return ''
+    s = nome.strip().lower()
+    return unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode('ascii')
+
+BASE = Path(__file__).parent
+NOW  = datetime.now()
+HOJE = NOW.strftime('%d/%m/%Y')
+HORA = NOW.strftime('%H:%M')
+DATA_ARQUIVO = NOW.strftime('%d%m%Y')
+
+
+def arquivar_obsoletos():
+    padroes = [
+        'Relatorio_Millena_*.xlsx',
+        'Usuarios_Millena_*.xlsx',
+        'Aprovacoes_Millena_*.xlsx',
+    ]
+    for padrao in padroes:
+        arquivos = sorted(
+            [f for f in BASE.glob(padrao) if '_Obsoleto' not in f.stem],
+            key=lambda f: f.stat().st_mtime,
+            reverse=True
+        )
+        for antigo in arquivos[1:]:  # tudo exceto o mais recente
+            novo = antigo.with_stem(antigo.stem + '_Obsoleto')
+            if not novo.exists():
+                antigo.rename(novo)
+                print(f'  Obsoleto: {antigo.name}  ->  {novo.name}')
+
+
+def find_latest(pattern):
+    files = sorted(
+        [f for f in BASE.glob(pattern) if '_Obsoleto' not in f.stem],
+        key=lambda f: f.stat().st_mtime,
+        reverse=True
+    )
+    return files[0] if files else None
+
+
+def ler_excel(arquivo, aba=None):
+    if not arquivo:
+        return []
+    wb = openpyxl.load_workbook(arquivo)
+    ws = wb[aba] if aba and aba in wb.sheetnames else wb.active
+    headers = [str(ws.cell(1, c).value or f'c{c}') for c in range(1, ws.max_column + 1)]
+    rows = []
+    for r in range(2, ws.max_row + 1):
+        row = {headers[c - 1]: (str(ws.cell(r, c).value).strip() if ws.cell(r, c).value is not None else '')
+               for c in range(1, ws.max_column + 1)}
+        if any(row.values()):
+            rows.append(row)
+    return rows
+
+
+def ler_resumo(arquivo):
+    """Lê a aba Resumo (pares chave-valor) e retorna dicionário."""
+    if not arquivo:
+        return {}
+    wb = openpyxl.load_workbook(arquivo, data_only=True)
+    if 'Resumo' not in wb.sheetnames:
+        return {}
+    data = {}
+    for row in wb['Resumo'].iter_rows(values_only=True):
+        if row[0] and row[1] is not None:
+            data[str(row[0])] = row[1]
+    return data
+
+
+# ── Prazo do Temporizador (config.json na pasta do projeto) ────────────────────
+try:
+    _prazo_cfg = json.loads((BASE.parent / 'config.json').read_text(encoding='utf-8')).get('prazo', '')
+    _prazo_dt  = datetime.strptime(_prazo_cfg, '%d/%m/%Y')
+    PRAZO_TXT  = _prazo_dt.strftime('%d/%m/%Y')
+    PRAZO_ISO  = _prazo_dt.strftime('%Y-%m-%dT23:59:59')
+except Exception:
+    PRAZO_TXT, PRAZO_ISO = 'a definir', ''
+
+
+# ── Gerenciamento de duplicatas ───────────────────────────────────────────────
+arquivar_obsoletos()
+
+# ── Leitura ───────────────────────────────────────────────────────────────────
+_arq_rel_al  = None   # slot sem empresa
+_arq_rel_se  = find_latest('Relatorio_Millena_*.xlsx')
+_arq_rel_rec = None   # slot sem empresa
+if not _arq_rel_se:
+    raise SystemExit('Relatorio_Millena_*.xlsx nao encontrado em ' + str(BASE))
+rel_al   = ler_excel(_arq_rel_al)
+rel_se   = ler_excel(_arq_rel_se)
+rel_rec  = ler_excel(_arq_rel_rec)
+usr_al   = []
+usr_se   = ler_excel(find_latest('Usuarios_Millena_*.xlsx'))
+usr_rec  = []
+aprov_al  = []
+aprov_se  = ler_excel(find_latest('Aprovacoes_Millena_*.xlsx'))
+aprov_rec = []
+TEM_APROVACOES = bool(aprov_al or aprov_se or aprov_rec)
+
+# Abas extras do Relatório
+resumo_al   = ler_resumo(_arq_rel_al)
+resumo_se   = ler_resumo(_arq_rel_se)
+resumo_rec  = ler_resumo(_arq_rel_rec)
+versoes_al  = ler_excel(_arq_rel_al, 'Versões & Parecer')
+versoes_se  = ler_excel(_arq_rel_se, 'Versões & Parecer')
+versoes_rec = ler_excel(_arq_rel_rec, 'Versões & Parecer')
+versoes_al  = [v for v in versoes_al  if 'Nenhuma' not in v.get('Atividade', '')]
+versoes_se  = [v for v in versoes_se  if 'Nenhuma' not in v.get('Atividade', '')]
+versoes_rec = [v for v in versoes_rec if 'Nenhuma' not in v.get('Atividade', '')]
+
+# ── Estado anterior (delta de envios) ─────────────────────────────────────────
+ESTADO_FILE = BASE / "estado_anterior.json"
+estado_anterior = {}
+if ESTADO_FILE.exists():
+    try:
+        estado_anterior = json.loads(ESTADO_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+
+
+# ── Processamento ─────────────────────────────────────────────────────────────
+def processar(rel, usr, empresa):
+    # Remove entradas com nome iniciando em "Inativo devido ao e-mail"
+    usr = [u for u in usr if not u.get('Nome', '').strip().lower().startswith('inativo devido ao e-mail')]
+    # Remove duplicatas de nome (mantém o primeiro, preferindo Ativo)
+    usr.sort(key=lambda u: (0 if u.get('Status','').strip()=='Ativo' else 1))
+    _seen_nomes = set()
+    usr_dedup = []
+    for u in usr:
+        n = _norm(u.get('Nome', ''))
+        if n not in _seen_nomes:
+            _seen_nomes.add(n)
+            usr_dedup.append(u)
+    usr = usr_dedup
+
+    # Apenas Ativos em tudo — métricas, listas e totais
+    usr = [u for u in usr if u.get('Status', 'Ativo').strip() == 'Ativo']
+    usr_todos = usr
+
+    func_subm_norm = set(_norm(r.get('Funcionário', '')) for r in rel if r.get('Funcionário'))
+
+    # contagem de atividades por funcionario (chave normalizada, evita perda por
+    # divergência de espaços/acentos entre Relatório e Usuários)
+    ativ_count_norm = {}
+    for r in rel:
+        f = r.get('Funcionário', '')
+        if f:
+            ativ_count_norm[_norm(f)] = ativ_count_norm.get(_norm(f), 0) + 1
+
+    # quem enviou — conta apenas usuários efetivamente cadastrados (ativos),
+    # para que "concluídos" nunca ultrapasse "cadastrados" e o % de adesão
+    # reflita exatamente os usuários cadastrados
+    enviaram_list = []
+    for u in usr:
+        n_norm = _norm(u['Nome'])
+        if n_norm in func_subm_norm:
+            enviaram_list.append({
+                'nome': u['Nome'],
+                'cargo': u.get('Cargo', ''),
+                'setor': u.get('Setor', ''),
+                'perfil': u.get('Perfil', ''),
+                'atividades': ativ_count_norm.get(n_norm, 0)
+            })
+    enviaram_list.sort(key=lambda x: x['atividades'], reverse=True)
+
+    # quem nao enviou — inclui ativos E inativos com campo status visível
+    # métricas de total/pendentes usam apenas ativos (usr), mas a lista usa usr_todos
+    nao_list = []
+    for u in sorted(usr_todos, key=lambda x: x['Nome']):
+        if _norm(u['Nome']) not in func_subm_norm:
+            nao_list.append({
+                'nome': u['Nome'],
+                'cargo': u.get('Cargo', ''),
+                'setor': u.get('Setor', ''),
+                'perfil': u.get('Perfil', ''),
+                'status_usr': u.get('Status', 'Ativo').strip()
+            })
+
+    # por cargo — combina usuarios e atividades
+    cargo_users = {}
+    for u in usr:
+        c = u.get('Cargo', '')
+        if c:
+            if c not in cargo_users:
+                cargo_users[c] = {'total': 0, 'funcs_subm': set(), 'atividades': 0}
+            cargo_users[c]['total'] += 1
+
+    for r in rel:
+        c = r.get('Cargo', '')
+        f = r.get('Funcionário', '')
+        if c and f:
+            if c not in cargo_users:
+                cargo_users[c] = {'total': 0, 'funcs_subm': set(), 'atividades': 0}
+            cargo_users[c]['funcs_subm'].add(f)
+            cargo_users[c]['atividades'] += 1
+
+    cargo_data = []
+    for cargo, d in cargo_users.items():
+        env = len(d['funcs_subm'])
+        tot = d['total']
+        pct = round(env / max(tot, 1) * 100)
+        cargo_data.append({
+            'cargo': cargo,
+            'total': tot,
+            'enviaram': env,
+            'atividades': d['atividades'],
+            'pct': pct
+        })
+    cargo_data.sort(key=lambda x: x['atividades'], reverse=True)
+
+    # atividades
+    atividades = []
+    for r in rel:
+        if r.get('Funcionário'):
+            atividades.append({
+                'funcionario': r.get('Funcionário', ''),
+                'cargo': r.get('Cargo', ''),
+                'setor': r.get('Setor', ''),
+                'nome': r.get('Nome', ''),
+                'detalhamento': r.get('Detalhamento', ''),
+                'periodicidade': r.get('Periodicidade', ''),
+                'tempo': r.get('Tempo', ''),
+                'status': r.get('Status', ''),
+                'como_realiza': r.get('Como realiza', ''),
+                'pontos_criticos': r.get('Pontos críticos', ''),
+                'sugestoes': r.get('Sugestões de melhoria', ''),
+                'criada_em': r.get('Criada em', ''),
+            })
+
+    # Pendentes = total cadastrados - cadastrados que enviaram (garante consistência nos cartões)
+    _nao_enviaram = len(usr) - len(enviaram_list)
+    if _nao_enviaram < 0:
+        _nao_enviaram = 0
+
+    # Envios por data — tenta localizar coluna de data no relatório
+    _date_col = next((c for c in (rel[0].keys() if rel else [])
+                      if any(k in c.lower() for k in ['data', 'criada', 'criado', 'enviado', 'atualiz'])), None)
+    _envios_por_data = {}
+    if _date_col:
+        _datas_func = {}
+        for r in rel:
+            f = r.get('Funcionário', '')
+            v = r.get(_date_col, '').strip()
+            if not f or not v or v == 'None':
+                continue
+            # Suporta: "DD/MM/YYYY, HH:MM:SS", "YYYY-MM-DD HH:MM:SS", "DD/MM/YYYY HH:MM"
+            v = v.split(',')[0].split('T')[0].split(' ')[0].strip()
+            parts = v.replace('-', '/').split('/')
+            if len(parts) == 3:
+                if len(parts[0]) == 4:
+                    v = f'{parts[2]}/{parts[1]}/{parts[0]}'
+                _datas_func.setdefault(v, set()).add(f)
+        _envios_por_data = {k: len(v) for k, v in sorted(_datas_func.items())}
+
+    # por setor (do cadastro de Usuarios) — cadastrados, enviaram, atividades
+    _setores = {}
+    for u in usr:
+        st = (u.get('Setor') or '').strip() or '(sem setor)'
+        d = _setores.setdefault(st, {'setor': st, 'total': 0, 'enviaram': 0, 'atividades': 0})
+        d['total'] += 1
+        n_norm = _norm(u['Nome'])
+        if n_norm in func_subm_norm:
+            d['enviaram'] += 1
+            d['atividades'] += ativ_count_norm.get(n_norm, 0)
+    setor_data = sorted(_setores.values(),
+                        key=lambda d: (-d['enviaram'] / max(d['total'], 1), -d['total'], d['setor']))
+    for d in setor_data:
+        d['pct'] = round(d['enviaram'] / max(d['total'], 1) * 100)
+
+    return {
+        'empresa': empresa,
+        'setor_data': setor_data,
+        'total': len(usr),
+        'enviaram': len(enviaram_list),
+        'nao_enviaram': _nao_enviaram,
+        'total_atividades': len(rel),
+        'enviaram_list': enviaram_list,
+        'nao_enviaram_list': nao_list,
+        'cargo_data': cargo_data,
+        'atividades': atividades,
+        'envios_por_data': _envios_por_data,
+    }
+
+
+def agregar_analise(atividades):
+    """Totais por coluna do Relatório (Periodicidade, Como realiza, Status,
+    Pontos críticos, Sugestões de melhoria, Criada em) — exclui Horário fixo,
+    Decisão gestor, Decisão consultor, Edições do consultor e Parecer do consultor."""
+    from collections import Counter
+
+    def _valor_ou_vazio(v):
+        v = (v or '').strip()
+        return v if v else '(vazio)'
+
+    per  = Counter(_valor_ou_vazio(a.get('periodicidade')) for a in atividades)
+    real = Counter(_valor_ou_vazio(a.get('como_realiza'))  for a in atividades)
+    stat = Counter(_valor_ou_vazio(a.get('status'))        for a in atividades)
+    pontos_count    = sum(1 for a in atividades if a.get('pontos_criticos', '').strip())
+    sugestoes_count = sum(1 for a in atividades if a.get('sugestoes', '').strip())
+
+    por_mes = Counter()
+    for a in atividades:
+        c = (a.get('criada_em') or '').strip()
+        mes = '(vazio)'
+        if c:
+            d = c.split(',')[0].split('T')[0].split(' ')[0].strip()
+            partes = d.replace('-', '/').split('/')
+            if len(partes) == 3:
+                mes = f'{partes[1]}/{partes[0]}' if len(partes[0]) == 4 else f'{partes[1]}/{partes[2]}'
+        por_mes[mes] += 1
+
+    def _chave_mes(item):
+        if item[0] == '(vazio)':
+            return ('9999', '99')
+        mm, aaaa = item[0].split('/')
+        return (aaaa, mm)
+
+    return {
+        'total': len(atividades),
+        'periodicidade': dict(sorted(per.items(), key=lambda x: -x[1])),
+        'como_realiza': dict(sorted(real.items(), key=lambda x: -x[1])),
+        'status': dict(sorted(stat.items(), key=lambda x: -x[1])),
+        'pontos_criticos_count': pontos_count,
+        'sugestoes_count': sugestoes_count,
+        'por_mes': dict(sorted(por_mes.items(), key=_chave_mes)),
+    }
+
+
+def processar_aprovacoes(aprov, rel):
+    """Cruza Aprovações com Relatório. Retorna lista de itens enriquecidos."""
+    if not aprov:
+        return {'itens': [], 'aprovados': 0, 'pendentes': 0, 'reprovados': 0, 'total': 0}
+
+    # Detecta colunas disponíveis (case-insensitive)
+    cols = list(aprov[0].keys()) if aprov else []
+    def col(keys):
+        for k in keys:
+            for c in cols:
+                if k.lower() in c.lower():
+                    return c
+        return None
+
+    c_func  = col(['funcionário', 'funcionario', 'nome', 'colaborador'])
+    c_cargo = col(['cargo', 'função', 'funcao'])
+    c_atv   = col(['atividade', 'tarefa', 'nome da atividade']) or ('Nome' if 'Nome' in cols else None)
+    c_stat  = col(['status', 'situação', 'situacao'])
+    c_aprov = col(['aprovador', 'gestor', 'aprovado por'])
+    c_data  = col(['data', 'dt aprovação', 'dt_aprovacao', 'atualizada em', 'criada em'])
+
+    # Mapa de atividades do Relatório por funcionário
+    rel_map = {}
+    for r in rel:
+        f = r.get('Funcionário', '')
+        if f:
+            rel_map.setdefault(f, []).append(r.get('Nome', ''))
+
+    itens = []
+    for a in aprov:
+        func  = a.get(c_func,  '') if c_func  else ''
+        cargo = a.get(c_cargo, '') if c_cargo else ''
+        atv   = a.get(c_atv,  '') if c_atv   else ''
+        stat  = a.get(c_stat, '') if c_stat   else ''
+        aprov_por = a.get(c_aprov, '') if c_aprov else ''
+        data_ap   = a.get(c_data,  '') if c_data   else ''
+
+        # Normaliza status
+        sl = stat.lower()
+        if any(w in sl for w in ['aprovad', 'concluíd', 'ok', 'finaliz']):
+            status_norm = 'Aprovado'
+        elif any(w in sl for w in ['reprovad', 'recusad', 'rejeit']):
+            status_norm = 'Reprovado'
+        else:
+            status_norm = 'Pendente'
+
+        # Verifica se tem atividade correspondente no Relatório
+        atv_rel = rel_map.get(func, [])
+        tem_relatorio = bool(atv_rel)
+
+        itens.append({
+            'funcionario': func,
+            'cargo': cargo,
+            'atividade': atv,
+            'status': status_norm,
+            'aprovador': aprov_por,
+            'data': data_ap,
+            'tem_relatorio': tem_relatorio,
+        })
+
+    aprovados  = sum(1 for i in itens if i['status'] == 'Aprovado')
+    pendentes  = sum(1 for i in itens if i['status'] == 'Pendente')
+    reprovados = sum(1 for i in itens if i['status'] == 'Reprovado')
+
+    return {
+        'itens': itens,
+        'aprovados': aprovados,
+        'pendentes': pendentes,
+        'reprovados': reprovados,
+        'total': len(itens),
+    }
+
+
+al  = processar(rel_al,  usr_al,  'Novatec Alagoas')
+se  = processar(rel_se,  usr_se,  'Millena')
+rec = processar(rel_rec, usr_rec, 'Novatec Recife')
+apr_al  = processar_aprovacoes(aprov_al,  rel_al)
+apr_se  = processar_aprovacoes(aprov_se,  rel_se)
+apr_rec = processar_aprovacoes(aprov_rec, rel_rec)
+anl_al    = agregar_analise(al['atividades'])
+anl_se    = agregar_analise(se['atividades'])
+anl_rec   = agregar_analise(rec['atividades'])
+anl_total = agregar_analise(al['atividades'] + se['atividades'] + rec['atividades'])
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _soma_resumo(chave):
+    return _num(resumo_al.get(chave, 0)) + _num(resumo_se.get(chave, 0)) + _num(resumo_rec.get(chave, 0))
+
+
+def _html_setores(dados):
+    import html as _h
+    linhas = []
+    for d in dados.get('setor_data', []):
+        cor = '#10b981' if d['pct'] >= 70 else ('#f59e0b' if d['pct'] >= 30 else '#ef4444')
+        linhas.append(
+            f'<div class="setor-row"><div class="setor-top">'
+            f'<span class="setor-nome">{_h.escape(d["setor"])}</span>'
+            f'<span class="setor-num"><strong>{d["enviaram"]}</strong>/{d["total"]}'
+            f' · {d["atividades"]} ativ. · <strong style="color:{cor}">{d["pct"]}%</strong></span></div>'
+            f'<div class="setor-track"><div class="setor-fill" style="width:{max(d["pct"], 2)}%;background:{cor}"></div></div></div>')
+    return ''.join(linhas) or '<div class="setor-vazio">Sem setores no cadastro.</div>'
+
+SETOR_HTML = _html_setores(se)
+
+_logo = BASE.parent / 'logo_millena.png'
+LOGO_SRC = ('data:image/png;base64,' + __import__('base64').b64encode(_logo.read_bytes()).decode()) if _logo.exists() else ''
+
+DATA = {
+    'alagoas': al,
+    'sergipe': se,
+    'recife':  rec,
+    'aprovacoes': {'alagoas': apr_al, 'sergipe': apr_se, 'recife': apr_rec},
+    'analise': {'alagoas': anl_al, 'sergipe': anl_se, 'recife': anl_rec, 'total': anl_total},
+    'resumo': {
+        'alagoas': {
+            'tempo_total':  resumo_al.get('Tempo total mapeado (horas)', 0),
+            'aprovadas':    resumo_al.get('Aprovadas', 0),
+            'ressalvas':    resumo_al.get('Ressalvas', 0),
+            'ag_gestor':    resumo_al.get('Aguardando gestor', 0),
+            'ag_consultor': resumo_al.get('Aguardando consultor', 0),
+            'editadas':     resumo_al.get('Atividades editadas pelo consultor', 0),
+            'com_parecer':  resumo_al.get('Atividades com parecer do consultor', 0),
+        },
+        'sergipe': {
+            'tempo_total':  resumo_se.get('Tempo total mapeado (horas)', 0),
+            'aprovadas':    resumo_se.get('Aprovadas', 0),
+            'ressalvas':    resumo_se.get('Ressalvas', 0),
+            'ag_gestor':    resumo_se.get('Aguardando gestor', 0),
+            'ag_consultor': resumo_se.get('Aguardando consultor', 0),
+            'editadas':     resumo_se.get('Atividades editadas pelo consultor', 0),
+            'com_parecer':  resumo_se.get('Atividades com parecer do consultor', 0),
+        },
+        'recife': {
+            'tempo_total':  resumo_rec.get('Tempo total mapeado (horas)', 0),
+            'aprovadas':    resumo_rec.get('Aprovadas', 0),
+            'ressalvas':    resumo_rec.get('Ressalvas', 0),
+            'ag_gestor':    resumo_rec.get('Aguardando gestor', 0),
+            'ag_consultor': resumo_rec.get('Aguardando consultor', 0),
+            'editadas':     resumo_rec.get('Atividades editadas pelo consultor', 0),
+            'com_parecer':  resumo_rec.get('Atividades com parecer do consultor', 0),
+        },
+        'total': {
+            'tempo_total':  round(_soma_resumo('Tempo total mapeado (horas)'), 1),
+            'aprovadas':    _soma_resumo('Aprovadas'),
+            'ressalvas':    _soma_resumo('Ressalvas'),
+            'ag_gestor':    _soma_resumo('Aguardando gestor'),
+            'ag_consultor': _soma_resumo('Aguardando consultor'),
+            'editadas':     _soma_resumo('Atividades editadas pelo consultor'),
+            'com_parecer':  _soma_resumo('Atividades com parecer do consultor'),
+        },
+    },
+    'versoes': {
+        'alagoas': [{'atividade': v.get('Atividade',''), 'funcionario': v.get('Funcionário',''),
+                     'setor': v.get('Setor',''), 'tipo': v.get('Tipo',''),
+                     'autor': v.get('Autor',''), 'data': v.get('Data/hora',''),
+                     'conteudo': v.get('Conteúdo','')} for v in versoes_al],
+        'sergipe': [{'atividade': v.get('Atividade',''), 'funcionario': v.get('Funcionário',''),
+                     'setor': v.get('Setor',''), 'tipo': v.get('Tipo',''),
+                     'autor': v.get('Autor',''), 'data': v.get('Data/hora',''),
+                     'conteudo': v.get('Conteúdo','')} for v in versoes_se],
+        'recife':  [{'atividade': v.get('Atividade',''), 'funcionario': v.get('Funcionário',''),
+                     'setor': v.get('Setor',''), 'tipo': v.get('Tipo',''),
+                     'autor': v.get('Autor',''), 'data': v.get('Data/hora',''),
+                     'conteudo': v.get('Conteúdo','')} for v in versoes_rec],
+    },
+}
+DATA_JSON = json.dumps(DATA, ensure_ascii=False).replace('</', '<\\/')
+
+# ── Métricas globais ──────────────────────────────────────────────────────────
+total_users = al['total'] + se['total'] + rec['total']
+total_env   = al['enviaram'] + se['enviaram'] + rec['enviaram']
+total_nenv  = al['nao_enviaram'] + se['nao_enviaram'] + rec['nao_enviaram']
+total_atv   = al['total_atividades'] + se['total_atividades'] + rec['total_atividades']
+pct_global  = round(total_env / max(total_users, 1) * 100, 1)
+pct_al      = round(al['enviaram']  / max(al['total'],  1) * 100, 1)
+pct_se      = round(se['enviaram']  / max(se['total'],  1) * 100, 1)
+pct_rec     = round(rec['enviaram'] / max(rec['total'], 1) * 100, 1)
+
+def fmt(n): return str(n).replace('.', ',')
+
+def _trophy(pct):
+    if pct >= 100:
+        return ' <span style="font-size:20px;vertical-align:middle;filter:drop-shadow(0 0 8px gold)">\U0001F3C6</span>'
+    return ''
+
+trophy_al  = _trophy(pct_al)
+trophy_se  = _trophy(pct_se)
+trophy_rec = _trophy(pct_rec)
+
+n_cargos_al  = len(al['cargo_data'])
+n_cargos_se  = len(se['cargo_data'])
+n_cargos_rec = len(rec['cargo_data'])
+apr_total    = apr_al['total']    + apr_se['total']    + apr_rec['total']
+apr_aprov    = apr_al['aprovados']+ apr_se['aprovados']+ apr_rec['aprovados']
+apr_pend     = apr_al['pendentes']+ apr_se['pendentes']+ apr_rec['pendentes']
+apr_reprov   = apr_al['reprovados']+apr_se['reprovados']+apr_rec['reprovados']
+APROV_TAB    = 'true' if TEM_APROVACOES else 'false'
+
+# ── Delta do dia (acumula do início do dia até agora) ─────────────────────────
+ultima_atualiz = estado_anterior.get('timestamp', '—')
+mesma_data     = (estado_anterior.get('data_ref', '') == HOJE)
+
+# Nomes atuais de quem enviou
+al_nomes_atual  = set(p['nome'] for p in al['enviaram_list'])
+se_nomes_atual  = set(p['nome'] for p in se['enviaram_list'])
+rec_nomes_atual = set(p['nome'] for p in rec['enviaram_list'])
+
+if not estado_anterior or not mesma_data:
+    delta_al = delta_se = delta_rec = 0
+    novos_usr_al = novos_usr_se = novos_usr_rec = set()
+    al_env_dia   = al['enviaram']
+    se_env_dia   = se['enviaram']
+    rec_env_dia  = rec['enviaram']
+    al_nomes_dia  = list(al_nomes_atual)
+    se_nomes_dia  = list(se_nomes_atual)
+    rec_nomes_dia = list(rec_nomes_atual)
+else:
+    al_env_dia   = estado_anterior.get('al_env_dia',  al['enviaram'])
+    se_env_dia   = estado_anterior.get('se_env_dia',  se['enviaram'])
+    rec_env_dia  = estado_anterior.get('rec_env_dia', rec['enviaram'])
+    al_nomes_dia  = estado_anterior.get('al_nomes_dia',  [])
+    se_nomes_dia  = estado_anterior.get('se_nomes_dia',  [])
+    rec_nomes_dia = estado_anterior.get('rec_nomes_dia', [])
+    delta_al  = al['enviaram']  - al_env_dia
+    delta_se  = se['enviaram']  - se_env_dia
+    delta_rec = rec['enviaram'] - rec_env_dia
+    novos_usr_al  = al_nomes_atual  - set(al_nomes_dia)
+    novos_usr_se  = se_nomes_atual  - set(se_nomes_dia)
+    novos_usr_rec = rec_nomes_atual - set(rec_nomes_dia)
+
+delta_total     = delta_al + delta_se + delta_rec
+novos_usr_total = len(novos_usr_al) + len(novos_usr_se) + len(novos_usr_rec)
+
+# ── Controle de alertas automáticos ───────────────────────────────────────────
+# Estreantes: quais já foram notificados hoje (evita e-mail duplicado)
+_estreantes_notif_prev = set(estado_anterior.get('estreantes_notificados', [])) if mesma_data else set()
+if mesma_data and novos_usr_total > 0:
+    _alerta_est_al  = novos_usr_al  - _estreantes_notif_prev
+    _alerta_est_se  = novos_usr_se  - _estreantes_notif_prev
+    _alerta_est_rec = novos_usr_rec - _estreantes_notif_prev
+else:
+    _alerta_est_al = _alerta_est_se = _alerta_est_rec = set()
+_total_alerta_est    = len(_alerta_est_al) + len(_alerta_est_se) + len(_alerta_est_rec)
+_estreantes_notif_atual = _estreantes_notif_prev | _alerta_est_al | _alerta_est_se | _alerta_est_rec
+
+# 100% adesão: detecta unidades que atingiram 100% pela primeira vez
+_unidades_100_prev = set(estado_anterior.get('unidades_100_notificadas', []))
+_unidades_100_atuais = set()
+if pct_al  >= 100.0 and al['total']  > 0: _unidades_100_atuais.add('al')
+if pct_se  >= 100.0 and se['total']  > 0: _unidades_100_atuais.add('se')
+if pct_rec >= 100.0 and rec['total'] > 0: _unidades_100_atuais.add('rec')
+_unidades_100_novas  = _unidades_100_atuais - _unidades_100_prev
+_unidades_100_salvar = (_unidades_100_prev & _unidades_100_atuais) | _unidades_100_novas
+
+# Atividades: throttle de 1 hora entre e-mails
+_ultima_email_atv = estado_anterior.get('ultima_email_atividade', '') if mesma_data else ''
+_pode_email_atv   = False
+if mesma_data and delta_total > 0:
+    if not _ultima_email_atv:
+        _pode_email_atv = True
+    else:
+        try:
+            _dt_ult = datetime.strptime(_ultima_email_atv, '%d/%m/%Y %H:%M')
+            _pode_email_atv = (NOW - _dt_ult).total_seconds() >= 3600
+        except Exception:
+            _pode_email_atv = True
+_email_atv_ts = f'{HOJE} {HORA}' if _pode_email_atv else _ultima_email_atv
+
+# Data e hora da última atualização — sempre reflete a execução atual
+_hora_ref = f'{HOJE} {HORA}'
+
+# ── Cartão NOVA ATIVIDADE (usa classe .card para uniformidade) ────────────────
+if not mesma_data or delta_total == 0:
+    _icone_atv = '<svg style="position:absolute;right:12px;top:40%;transform:translateY(-50%);opacity:.18;width:44px;height:44px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>'
+    _hoje_badge = '<div style="position:absolute;right:10px;bottom:8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:.06em">HOJE</div>'
+    novos_card = (
+        '<div class="card" id="card-novas" data-total="0" data-al="0" data-se="0" data-rec="0">'
+        + _icone_atv + _hoje_badge +
+        '<div class="card-label">Novas Atividades</div>'
+        '<div class="card-value" id="val-novas" style="color:#f59e0b;font-size:20px">0</div>'
+        '</div>'
+    )
+else:
+    s_al  = ('+' if delta_al  >= 0 else '') + str(delta_al)
+    s_se  = ('+' if delta_se  >= 0 else '') + str(delta_se)
+    s_rec = ('+' if delta_rec >= 0 else '') + str(delta_rec)
+    _icone_atv = '<svg style="position:absolute;right:12px;top:40%;transform:translateY(-50%);opacity:.18;width:44px;height:44px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>'
+    _hoje_badge = '<div style="position:absolute;right:10px;bottom:8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:.06em">HOJE</div>'
+    novos_card = (
+        f'<div class="card pink" id="card-novas" data-total="+{delta_total}" data-al="{s_al}" data-se="{s_se}" data-rec="{s_rec}">'
+        + _icone_atv + _hoje_badge +
+        '<div class="card-label">🔔 Novas Atividades</div>'
+        f'<div class="card-value" id="val-novas" style="color:#f59e0b;font-size:20px">+{delta_total}</div>'
+        f'<div class="card-detail" id="det-novas-se">Millena: {s_se}</div>'
+        '</div>'
+    )
+
+novos_usuarios_card = ''
+
+# Salva estado: baseline do dia + snapshot atual + controle de alertas
+ESTADO_FILE.write_text(json.dumps({
+    'timestamp':              f'{HOJE} {HORA}',
+    'data_ref':               HOJE,
+    'al_env_dia':             al_env_dia,
+    'se_env_dia':             se_env_dia,
+    'rec_env_dia':            rec_env_dia,
+    'al_nomes_dia':           al_nomes_dia,
+    'se_nomes_dia':           se_nomes_dia,
+    'rec_nomes_dia':          rec_nomes_dia,
+    'al_env':                 al['enviaram'],
+    'se_env':                 se['enviaram'],
+    'rec_env':                rec['enviaram'],
+    'al_total':               al['total'],
+    'se_total':               se['total'],
+    'rec_total':              rec['total'],
+    'al_nomes':               list(al_nomes_atual),
+    'se_nomes':               list(se_nomes_atual),
+    'rec_nomes':              list(rec_nomes_atual),
+    'estreantes_notificados': list(_estreantes_notif_atual),
+    'ultima_email_atividade': _email_atv_ts,
+    'unidades_100_notificadas': list(_unidades_100_salvar),
+}, ensure_ascii=False, indent=2), encoding='utf-8')
+
+# Flag: envia e-mail se houve qualquer alteração nos dados em relação ao ciclo anterior
+_prev_al_env  = estado_anterior.get('al_env',   None)
+_prev_se_env  = estado_anterior.get('se_env',   None)
+_prev_rec_env = estado_anterior.get('rec_env',  None)
+_prev_al_tot  = estado_anterior.get('al_total', None)
+_prev_se_tot  = estado_anterior.get('se_total', None)
+_prev_rec_tot = estado_anterior.get('rec_total',None)
+_TEM_NOVIDADES = (
+    _prev_al_env  is None or
+    al['enviaram']  != _prev_al_env  or
+    se['enviaram']  != _prev_se_env  or
+    rec['enviaram'] != _prev_rec_env or
+    al['total']     != _prev_al_tot  or
+    se['total']     != _prev_se_tot  or
+    rec['total']    != _prev_rec_tot
+)
+(BASE / 'tem_novidades.json').write_text(
+    json.dumps({'tem_novidades': _TEM_NOVIDADES}), encoding='utf-8'
+)
+
+# ── Template HTML ─────────────────────────────────────────────────────────────
+HTML = """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Millena — Relatório de Atividades · DATE_HOJE</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+  :root {
+    --bg:#0d1117;--surface:#161b22;--surface2:#1c2330;--border:#2a3441;
+    --al:#2563eb;--al-glow:rgba(37,99,235,.18);
+    --se:#7c3aed;--se-glow:rgba(124,58,237,.18);
+    --re:#f97316;--re-glow:rgba(249,115,22,.18);
+    --green:#10b981;--orange:#f59e0b;--red:#ef4444;
+    --text:#e2e8f0;--muted:#94a3b8;--subtle:#cbd5e1;--white:#f8fafc;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;min-height:100vh}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:20px 40px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--al),var(--se));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .logo-text{font-size:20px;font-weight:700;color:var(--white)}
+  .logo-sub{font-size:13px;color:var(--muted);margin-top:2px}
+  .logo-millena{height:52px;width:auto;border-radius:8px;display:block;flex-shrink:0}
+  @media(max-width:600px){.logo-millena{height:38px}header{flex-wrap:wrap;gap:8px}.logo-text{font-size:15px;line-height:1.25}.header-date{display:none}}
+  .header-date{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px}
+  #filtro-turno option{background:#1c2330;color:#f1f5f9}
+  #filtro-turno option:checked{background:#334155;color:#fff}
+  .nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 40px;display:flex;gap:4px}
+  .nav-btn{background:none;border:none;cursor:pointer;padding:14px 22px;font-family:'Inter',sans-serif;font-size:16px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .18s}
+  .nav-btn:hover{color:var(--text)}
+  .nav-btn.active{color:var(--white);border-bottom-color:var(--al)}
+  main{padding:32px 40px;max-width:1400px;margin:0 auto}
+  .tab-panel{display:none}
+  .tab-panel.active{display:block}
+  .section-title{font-size:24px;font-weight:700;color:var(--white);margin-bottom:6px}
+  .section-sub{font-size:15px;color:var(--muted);margin-bottom:24px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:28px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;position:relative;overflow:hidden;transition:transform .15s,box-shadow .15s}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+  .card.al::before{background:linear-gradient(90deg,var(--al),#60a5fa)}
+  .card.se::before{background:linear-gradient(90deg,var(--se),#a78bfa)}
+  .card.re::before{background:linear-gradient(90deg,var(--re),#fdba74)}
+  .card.green::before{background:var(--green)}
+  .card.red::before{background:var(--red)}
+  .card.orange::before{background:var(--orange)}
+  .card.teal::before{background:#14b8a6}
+  .card.pink::before{background:#ffffff}
+  .card-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:4px}
+  .card-value{font-size:24px;font-weight:700;color:var(--white);line-height:1;margin-bottom:2px}
+  .card-detail{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4}
+  .empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:32px}
+  @media(max-width:1100px){.empresa-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:700px){.empresa-grid{grid-template-columns:1fr}}
+  .empresa-block{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .empresa-header{padding:18px 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .empresa-header.al{background:var(--al-glow);border-left:3px solid var(--al)}
+  .empresa-header.se{background:var(--se-glow);border-left:3px solid var(--se)}
+  .empresa-header.re{background:var(--re-glow);border-left:3px solid var(--re)}
+  .empresa-name{font-size:16px;font-weight:700;color:var(--white)}
+  .empresa-badge{font-family:'DM Mono',monospace;font-size:12px;padding:4px 11px;border-radius:20px;font-weight:600}
+  .badge-al{background:var(--al-glow);color:#60a5fa;border:1px solid #2563eb55}
+  .badge-se{background:var(--se-glow);color:#a78bfa;border:1px solid #7c3aed55}
+  .badge-re{background:var(--re-glow);color:#fdba74;border:1px solid #f9731655}
+  .donut-wrap{padding:24px;display:flex;align-items:center;gap:24px}
+  .donut-canvas{flex-shrink:0}
+  .donut-legend{display:flex;flex-direction:column;gap:10px}
+  .legend-item{display:flex;align-items:center;gap:8px;font-size:13px}
+  .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .progress-section{padding:0 22px 26px}
+  .progress-label{display:flex;justify-content:space-between;align-items:center;font-size:15px;font-weight:500;color:var(--muted);margin-bottom:6px}
+  .progress-track{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;border:1px solid var(--border)}
+  .progress-fill{height:100%;border-radius:99px;transition:width .6s ease}
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:28px}
+  .table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .table-title{font-size:14px;font-weight:600;color:var(--white)}
+  .table-count{font-size:11px;font-family:'DM Mono',monospace;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:3px 10px;color:var(--subtle)}
+  .search-input{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:13px;color:var(--text);font-family:'Inter',sans-serif;outline:none;width:220px;transition:border-color .15s}
+  .search-input:focus{border-color:var(--al)}
+  .search-input::placeholder{color:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  th{background:var(--surface2);padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border)}
+  td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:var(--surface2)}
+  .status-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px}
+  .status-parcial{background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.3)}
+  .status-aguardando{background:rgba(148,163,184,.1);color:var(--subtle);border:1px solid var(--border)}
+  .pct-bar-cell{min-width:120px}
+  .pct-inline{display:flex;align-items:center;gap:8px}
+  .pct-track{flex:1;height:5px;background:var(--surface2);border-radius:99px;overflow:hidden}
+  .pct-fill{height:100%;border-radius:99px}
+  .pct-num{font-family:'DM Mono',monospace;font-size:11px;color:var(--subtle);min-width:32px;text-align:right}
+  .count-pill{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-family:'DM Mono',monospace;font-size:12px;color:var(--subtle)}
+  .setor-tag{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500}
+  .setor-corp{background:rgba(37,99,235,.15);color:#93c5fd}
+  .setor-tec{background:rgba(124,58,237,.15);color:#c4b5fd}
+  .empresa-toggle{display:flex;gap:8px;margin-bottom:20px}
+  .toggle-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 18px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s}
+  .toggle-btn:hover{color:var(--text)}
+  .toggle-btn.al.active{background:var(--al-glow);color:#60a5fa;border-color:#2563eb55}
+  .toggle-btn.se.active{background:var(--se-glow);color:#a78bfa;border-color:#7c3aed55}
+  .toggle-btn.re.active{background:var(--re-glow);color:#fdba74;border-color:#f9731655}
+  .alert{border-radius:10px;padding:14px 18px;margin-bottom:20px;font-size:13px;display:flex;align-items:flex-start;gap:10px;border:1px solid}
+  .alert-red{background:rgba(239,68,68,.08);border-color:rgba(239,68,68,.3);color:#fca5a5}
+  .alert-icon{font-size:16px;margin-top:1px;flex-shrink:0}
+  footer{text-align:center;padding:24px 40px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);margin-top:48px}
+</style>
+<style>
+  /* Millena ocupa so o slot 'se'; os slots herdados da Novatec ficam ocultos */
+  #filtro-todas,#filtro-se,#filtro-al,#filtro-rec,#bloco-al,#bloco-rec,
+  [id$="-toggle-se"],[id$="-toggle-al"],[id$="-toggle-rec"]{display:none!important}
+  #empresa-grid{grid-template-columns:1fr!important}
+  #resumo-grid>:nth-child(n+2),#anl-resumo-grid>:nth-child(n+2),
+  #anl-col-al,#anl-col-rec,#anl-col-total{display:none!important}
+  #resumo-grid,#anl-resumo-grid,#anl-cols-grid{grid-template-columns:minmax(0,1fr)!important}
+  .se-corpo{display:grid;grid-template-columns:minmax(300px,1fr) 2fr}
+  .se-esq{display:flex;flex-direction:column;justify-content:space-between}
+  .se-setores{border-left:1px solid var(--border);padding:20px 24px 22px}
+  .setor-titulo{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+  .setor-titulo span{font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px;font-size:12px}
+  .setor-lista{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px}
+  .setor-top{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:5px}
+  .setor-nome{color:var(--white);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .setor-num{color:var(--muted);white-space:nowrap}
+  .setor-num strong{color:var(--white)}
+  .setor-track{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden}
+  .setor-fill{height:100%;border-radius:99px}
+  .setor-vazio{color:var(--muted);font-size:13px}
+  .setor-titulo{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  .setor-row{cursor:pointer;border-radius:8px;padding:6px 8px;margin:-6px -8px;transition:background .15s,opacity .15s}
+  .setor-row:hover{background:rgba(255,255,255,.05)}
+  .setor-row:focus-visible{outline:2px solid #7c3aed;outline-offset:1px}
+  .setor-row.ativo{background:rgba(124,58,237,.18);box-shadow:inset 0 0 0 1px rgba(124,58,237,.6)}
+  .setor-row.apagado{opacity:.45}
+  .setor-chip{margin-left:auto;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.6);color:var(--white);
+    border-radius:99px;padding:3px 10px;font-size:12px;font-family:inherit;text-transform:none;letter-spacing:0;cursor:pointer}
+  @media(max-width:1100px){.setor-lista{grid-template-columns:1fr}}
+  @media(max-width:800px){.se-corpo{grid-template-columns:1fr}.se-setores{border-left:0;border-top:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <img class="logo-millena" src="LOGO_SRC_PLACEHOLDER" alt="Millena móveis e eletro">
+    <div>
+      <div class="logo-text">Millena - Status do Mapeamento de Atividades</div>
+      <div class="logo-sub">Gerado em DATE_HOJE</div>
+    </div>
+  </div>
+  <div class="header-date">DATE_HOJE · DATE_HORA</div>
+</header>
+
+<nav class="nav">
+  <button class="nav-btn active" onclick="showTab('visao-geral',this)">✨ Visão Geral</button>
+  <button class="nav-btn" onclick="showTab('por-cargo',this)">Por Cargo</button>
+  <button class="nav-btn" onclick="showTab('nao-enviaram',this)">Não Enviaram</button>
+  <button class="nav-btn" onclick="showTab('enviaram',this)">Enviaram</button>
+  <button class="nav-btn" onclick="showTab('atividades',this)">Atividades</button>
+  <button class="nav-btn" onclick="showTab('analise-atividades',this)">Análise das Atividades</button>
+  <button class="nav-btn" id="nav-aprovacoes" onclick="showTab('aprovacoes',this)" style="display:APROV_NAV_DISPLAY">Aprovações</button>
+</nav>
+
+<main>
+
+<!-- VISÃO GERAL -->
+<div id="tab-visao-geral" class="tab-panel active">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+      <div class="section-title" style="margin-bottom:0">Visão Geral</div>
+      <div class="section-sub" style="margin-bottom:0">Mapeamento de atividades — DATE_HOJE</div>
+    </div>
+  </div>
+  <div id="filtro-data-info" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:14px;padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px"></div>
+  ALERT_CRITICOS_HTML
+  <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em HORA_REF</div>
+  </div>
+  <div class="empresa-toggle" style="margin-bottom:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="toggle-btn active" id="filtro-todas" onclick="filterEmpresa('todas')">Todas as filiais</button>
+      <button class="toggle-btn se" id="filtro-se" onclick="filterEmpresa('se')">Millena</button>
+      <button class="toggle-btn al" id="filtro-al" onclick="filterEmpresa('al')">Novatec Alagoas</button>
+      <button class="toggle-btn re" id="filtro-rec" onclick="filterEmpresa('rec')">Novatec Recife</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">📅 Período</span>
+        <input type="date" id="filtro-data-de" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:'DM Mono',monospace;color-scheme:dark">
+        <span style="font-size:11px;color:var(--muted)">até</span>
+        <input type="date" id="filtro-data-ate" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:'DM Mono',monospace;color-scheme:dark">
+        <button onclick="limparFiltroData()" title="Limpar filtro de data" style="font-size:11px;padding:4px 9px;border-radius:6px;border:none;cursor:pointer;background:rgba(255,255,255,.08);color:var(--subtle);font-weight:600">Limpar</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;background:#12151d;border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">🕐 Turno</span>
+        <select id="filtro-turno" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:Inter,sans-serif">
+          <option value="todos">Todos</option>
+          <option value="manha">Manhã</option>
+          <option value="tarde">Tarde</option>
+          <option value="noite">Noite</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="cards" style="grid-template-columns:repeat(7,1fr)">
+    <div class="card al">
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.18;width:52px;height:52px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
+      <div class="card-label">Cadastrados</div>
+      <div class="card-value" id="val-cadastrados">TOTAL_USERS</div>
+      <div class="card-detail card-detalhe">Millena: SE_TOTAL</div>
+    </div>
+    <div class="card green">
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.18;width:52px;height:52px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5l-4-4 1.41-1.41L10 13.67l6.59-6.59L18 8.5l-8 8z"/></svg>
+      <div class="card-label">Concluídos</div>
+      <div class="card-value" id="val-concluidos">ENV_TOTAL</div>
+      <div class="card-detail card-detalhe">Millena: SE_ENV</div>
+    </div>
+    <div class="card red">
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.18;width:52px;height:52px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+      <div class="card-label">Pendentes</div>
+      <div class="card-value" id="val-pendentes">NENV_TOTAL</div>
+      <div class="card-detail card-detalhe">Millena: SE_NENV</div>
+    </div>
+    <div class="card se">
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.18;width:52px;height:52px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/></svg>
+      <div class="card-label">Atividades</div>
+      <div class="card-value" id="val-atividades">ATV_TOTAL</div>
+      <div class="card-detail card-detalhe">Millena: SE_ATV</div>
+    </div>
+    <div class="card teal">
+      <svg style="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.18;width:52px;height:52px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
+      <div class="card-label">Adesão Global</div>
+      <div class="card-value" id="val-adesao">PCT_GLOBAL%</div>
+    </div>
+    NOVOS_ENVIOS_CARD
+    <div class="card orange" id="card-prazo">
+      <div class="card-label">Temporazador</div>
+      <div id="prazo-countdown" style="display:flex;gap:3px;align-items:flex-end;margin:2px 0 6px">
+        <div style="text-align:center"><span id="p-dias" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:#ffffff;margin-top:1px;letter-spacing:.04em">DIAS</div></div>
+        <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
+        <div style="text-align:center"><span id="p-horas" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.04em">HRS</div></div>
+        <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
+        <div style="text-align:center"><span id="p-min" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.04em">MIN</div></div>
+        <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
+        <div style="text-align:center"><span id="p-seg" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.04em">SEG</div></div>
+      </div>
+      <div class="card-detail" style="color:var(--white)">Prazo PRAZO_TXT</div>
+    </div>
+  </div>
+
+  <div class="empresa-grid" id="empresa-grid">
+    <div class="empresa-block" id="bloco-se">
+      <div class="empresa-header se">
+        <span class="empresa-name">Millena <span id="se-trophy">SE_TROPHY_HTML</span></span>
+        <span class="empresa-badge badge-se"><span id="se-pct-badge">SE_PCT</span>% adesão</span>
+      </div>
+      <div class="se-corpo">
+      <div class="se-esq">
+      <div class="donut-wrap">
+        <canvas class="donut-canvas" id="donut-se" width="120" height="120"></canvas>
+        <div class="donut-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div><span>Enviaram — <strong id="se-enviaram-count">SE_ENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div><span>Não enviaram — <strong id="se-nao-enviaram-count">SE_NENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div><span>Atividades — <strong id="se-atividades-count">SE_ATV</strong></span></div>
+        </div>
+      </div>
+      <div class="progress-section">
+        <div class="progress-label"><span>Taxa de envio</span><span style="color:var(--white);font-weight:700" id="se-pct-label">SE_PCT%</span></div>
+        <div class="progress-track"><div class="progress-fill" id="se-progress-fill" style="width:SE_PCT_RAW%;background:SE_PROGRESS_COLOR"></div></div>
+      </div>
+      </div>
+      <div class="se-setores">
+        <div class="setor-titulo">Adesão por setor <span>enviaram / cadastrados · clique para filtrar</span>
+          <button id="setor-chip" class="setor-chip" style="display:none" onclick="filtrarSetor('')">Setor: <b></b> ✕</button></div>
+        <div class="setor-lista" id="setor-lista">SETOR_HTML_PLACEHOLDER</div>
+      </div>
+      </div>
+    </div>
+    <div class="empresa-block" id="bloco-al">
+      <div class="empresa-header al">
+        <span class="empresa-name">Novatec Alagoas <span id="al-trophy">AL_TROPHY_HTML</span></span>
+        <span class="empresa-badge badge-al"><span id="al-pct-badge">PCT_AL</span>% adesão</span>
+      </div>
+      <div class="donut-wrap">
+        <canvas class="donut-canvas" id="donut-al" width="120" height="120"></canvas>
+        <div class="donut-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div><span>Enviaram — <strong id="al-enviaram-count">AL_ENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div><span>Não enviaram — <strong id="al-nao-enviaram-count">AL_NENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#2563eb"></div><span>Atividades — <strong id="al-atividades-count">AL_ATV</strong></span></div>
+        </div>
+      </div>
+      <div class="progress-section">
+        <div class="progress-label"><span>Taxa de envio</span><span style="color:var(--white);font-weight:700" id="al-pct-label">PCT_AL%</span></div>
+        <div class="progress-track"><div class="progress-fill" id="al-progress-fill" style="width:PCT_AL_RAW%;background:AL_PROGRESS_COLOR"></div></div>
+      </div>
+    </div>
+    <div class="empresa-block" id="bloco-rec">
+      <div class="empresa-header re">
+        <span class="empresa-name">Novatec Recife <span id="rec-trophy">RE_TROPHY_HTML</span></span>
+        <span class="empresa-badge badge-re"><span id="rec-pct-badge">RE_PCT</span>% adesão</span>
+      </div>
+      <div class="donut-wrap">
+        <canvas class="donut-canvas" id="donut-rec" width="120" height="120"></canvas>
+        <div class="donut-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div><span>Enviaram — <strong id="rec-enviaram-count">RE_ENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div><span>Não enviaram — <strong id="rec-nao-enviaram-count">RE_NENV</strong></span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f97316"></div><span>Atividades — <strong id="rec-atividades-count">RE_ATV</strong></span></div>
+        </div>
+      </div>
+      <div class="progress-section">
+        <div class="progress-label"><span>Taxa de envio</span><span style="color:var(--white);font-weight:700" id="rec-pct-label">RE_PCT%</span></div>
+        <div class="progress-track"><div class="progress-fill" id="rec-progress-fill" style="width:RE_PCT_RAW%;background:REC_PROGRESS_COLOR"></div></div>
+      </div>
+    </div>
+    <div id="bloco-chart" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;align-self:stretch;flex-direction:column">
+      <div style="font-size:13px;font-weight:700;color:var(--white);letter-spacing:.03em;margin-bottom:4px" id="chart-titulo">Envios por Data</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px" id="chart-subtitulo">Funcionários únicos que enviaram atividades por dia</div>
+      <div style="flex:1;position:relative;min-height:180px">
+        <canvas id="chart-envios-data" style="width:100%;display:block"></canvas>
+        <div id="chart-no-data" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span style="font-size:12px;color:var(--muted)">Sem dados de data disponíveis no relatório</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <div class="table-header" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <div style="min-width:180px">
+        <div class="table-title">👥 Funcionários — Enviaram e Pendentes</div>
+        <span class="table-count" id="count-tb-enviaram">—</span>
+      </div>
+      <input id="vg-search" type="text" placeholder="🔍 Buscar funcionário..." oninput="filtrarEnviaram(window._vgFiltro)" style="flex:1;min-width:180px;max-width:300px;padding:6px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:var(--text);font-size:12px;outline:none" />
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
+        <div style="display:flex;gap:3px;background:rgba(255,255,255,.06);border-radius:8px;padding:3px;border:1px solid rgba(255,255,255,.08)">
+          <button id="fg-btn-todos" onclick="filtrarEnviaram('todos')" style="font-size:11px;padding:4px 11px;border-radius:6px;border:none;cursor:pointer;font-weight:600;transition:all .15s">Todos</button>
+          <button id="fg-btn-enviaram" onclick="filtrarEnviaram('enviaram')" style="font-size:11px;padding:4px 11px;border-radius:6px;border:none;cursor:pointer;font-weight:400;transition:all .15s">Enviaram</button>
+          <button id="fg-btn-pendentes" onclick="filtrarEnviaram('pendentes')" style="font-size:11px;padding:4px 11px;border-radius:6px;border:none;cursor:pointer;font-weight:400;transition:all .15s">Pendentes</button>
+        </div>
+        <button onclick="exportarVisaoGeral()" style="font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(16,185,129,.3);cursor:pointer;background:rgba(16,185,129,.12);color:#34d399;font-weight:600;white-space:nowrap">⬇ Exportar Excel</button>
+      </div>
+    </div>
+    <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Filial</th><th>Atividades</th></tr></thead>
+    <tbody id="tb-enviaram"></tbody></table>
+  </div>
+</div>
+
+<!-- POR CARGO -->
+<div id="tab-por-cargo" class="tab-panel">
+  <div class="section-title">Análise por Cargo</div>
+  <div class="section-sub">Adesão e volume de atividades por função</div>
+  <div class="empresa-toggle">
+    <button class="toggle-btn se active" id="cargo-toggle-se" onclick="cargoToggle('se')">Millena</button>
+    <button class="toggle-btn al" id="cargo-toggle-al" onclick="cargoToggle('al')">Novatec Alagoas</button>
+    <button class="toggle-btn re" id="cargo-toggle-rec" onclick="cargoToggle('rec')">Novatec Recife</button>
+  </div>
+  <div id="cargo-se">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Millena — por cargo</div>
+        <span class="table-count">N_CARGOS_SE cargos</span>
+      </div>
+      <table><thead><tr><th>Cargo</th><th>Cadastrados</th><th>Enviaram</th><th>Atividades</th><th>Adesão</th></tr></thead>
+      <tbody id="tb-cargo-se"></tbody></table>
+    </div>
+  </div>
+  <div id="cargo-al" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Alagoas — por cargo</div>
+        <span class="table-count">N_CARGOS_AL cargos</span>
+      </div>
+      <table><thead><tr><th>Cargo</th><th>Cadastrados</th><th>Enviaram</th><th>Atividades</th><th>Adesão</th></tr></thead>
+      <tbody id="tb-cargo-al"></tbody></table>
+    </div>
+  </div>
+  <div id="cargo-rec" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Recife — por cargo</div>
+        <span class="table-count">N_CARGOS_REC cargos</span>
+      </div>
+      <table><thead><tr><th>Cargo</th><th>Cadastrados</th><th>Enviaram</th><th>Atividades</th><th>Adesão</th></tr></thead>
+      <tbody id="tb-cargo-rec"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- NÃO ENVIARAM -->
+<div id="tab-nao-enviaram" class="tab-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
+    <div class="section-title" style="margin-bottom:0">Cadastrados sem Envio</div>
+    <button onclick="exportarPendentes()" style="display:inline-flex;align-items:center;gap:8px;background:#10b981;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar Excel
+    </button>
+  </div>
+  <div class="section-sub">Funcionários registrados no sistema que não submeteram nenhuma atividade</div>
+  <div class="empresa-toggle">
+    <button class="toggle-btn se active" id="nao-toggle-se" onclick="naoToggle('se')">Millena — SE_NENV pessoas</button>
+    <button class="toggle-btn al" id="nao-toggle-al" onclick="naoToggle('al')">Alagoas — AL_NENV pessoas</button>
+    <button class="toggle-btn re" id="nao-toggle-rec" onclick="naoToggle('rec')">Recife — RE_NENV pessoas</button>
+  </div>
+  <div id="nao-se">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Millena — sem envio</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('nao-se-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="width:90px">Status</th></tr></thead>
+      <tbody id="nao-se-body"></tbody></table>
+    </div>
+  </div>
+  <div id="nao-al" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Alagoas — sem envio</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('nao-al-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="width:90px">Status</th></tr></thead>
+      <tbody id="nao-al-body"></tbody></table>
+    </div>
+  </div>
+  <div id="nao-rec" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Recife — sem envio</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('nao-rec-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="width:90px">Status</th></tr></thead>
+      <tbody id="nao-rec-body"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ENVIARAM -->
+<div id="tab-enviaram" class="tab-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:6px">
+    <div class="section-title" style="margin-bottom:0">Cadastrados com Envio</div>
+    <button onclick="exportarEnviaram()" style="display:inline-flex;align-items:center;gap:8px;background:#2563eb;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar Excel
+    </button>
+  </div>
+  <div class="section-sub">Funcionários que submeteram atividades no sistema</div>
+  <div class="empresa-toggle">
+    <button class="toggle-btn se active" id="env-toggle-se" onclick="envToggle('se')">Millena — SE_ENV pessoas</button>
+    <button class="toggle-btn al" id="env-toggle-al" onclick="envToggle('al')">Alagoas — AL_ENV pessoas</button>
+    <button class="toggle-btn re" id="env-toggle-rec" onclick="envToggle('rec')">Recife — RE_ENV pessoas</button>
+  </div>
+  <div id="env-se">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Millena — enviaram</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('env-se-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="text-align:center">Atividades</th></tr></thead>
+      <tbody id="env-se-body"></tbody></table>
+    </div>
+  </div>
+  <div id="env-al" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Alagoas — enviaram</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('env-al-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="text-align:center">Atividades</th></tr></thead>
+      <tbody id="env-al-body"></tbody></table>
+    </div>
+  </div>
+  <div id="env-rec" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Recife — enviaram</div>
+        <input class="search-input" placeholder="Filtrar por nome ou cargo…" oninput="filterTable('env-rec-body',this.value)">
+      </div>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Perfil</th><th style="text-align:center">Atividades</th></tr></thead>
+      <tbody id="env-rec-body"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ATIVIDADES -->
+<div id="tab-atividades" class="tab-panel">
+  <div class="section-title">Atividades Enviadas</div>
+  <div class="section-sub">Listagem completa das atividades submetidas — ATV_TOTAL no total</div>
+
+  <!-- Resumo executivo -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px" id="resumo-grid">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Millena</div>
+      <div id="resumo-se-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Novatec Alagoas</div>
+      <div id="resumo-al-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Novatec Recife</div>
+      <div id="resumo-rec-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+  </div>
+
+  <!-- Versões & Parecer -->
+  <div style="margin-bottom:24px">
+    <div class="section-title" style="font-size:18px;margin-bottom:4px">Versões &amp; Parecer</div>
+    <div class="section-sub" style="margin-bottom:12px">Edições e pareceres do consultor registrados no relatório</div>
+    <div class="empresa-toggle" style="margin-bottom:12px">
+      <button class="toggle-btn se active" id="ver-toggle-se" onclick="verToggle('se')">Millena</button>
+      <button class="toggle-btn al" id="ver-toggle-al" onclick="verToggle('al')">Alagoas</button>
+      <button class="toggle-btn re" id="ver-toggle-rec" onclick="verToggle('rec')">Recife</button>
+    </div>
+    <div id="ver-se">
+      <div class="table-wrap">
+        <table><thead><tr><th>Funcionário</th><th>Atividade</th><th>Tipo</th><th>Autor</th><th>Data/hora</th><th>Conteúdo</th></tr></thead>
+        <tbody id="ver-se-body"></tbody></table>
+      </div>
+    </div>
+    <div id="ver-al" style="display:none">
+      <div class="table-wrap">
+        <table><thead><tr><th>Funcionário</th><th>Atividade</th><th>Tipo</th><th>Autor</th><th>Data/hora</th><th>Conteúdo</th></tr></thead>
+        <tbody id="ver-al-body"></tbody></table>
+      </div>
+    </div>
+    <div id="ver-rec" style="display:none">
+      <div class="table-wrap">
+        <table><thead><tr><th>Funcionário</th><th>Atividade</th><th>Tipo</th><th>Autor</th><th>Data/hora</th><th>Conteúdo</th></tr></thead>
+        <tbody id="ver-rec-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+    <div class="empresa-toggle" style="margin-bottom:0">
+      <button class="toggle-btn se active" id="atv-toggle-se" onclick="atvToggle('se')">Millena — SE_ATV atividades</button>
+      <button class="toggle-btn al" id="atv-toggle-al" onclick="atvToggle('al')">Alagoas — AL_ATV atividades</button>
+      <button class="toggle-btn re" id="atv-toggle-rec" onclick="atvToggle('rec')">Recife — RE_ATV atividades</button>
+    </div>
+    <button onclick="exportarAtividades()" style="display:inline-flex;align-items:center;gap:8px;background:#7c3aed;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar Excel
+    </button>
+  </div>
+  <div id="atv-se">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Millena</div>
+        <input class="search-input" placeholder="Filtrar atividades…" oninput="filterTable('atv-se-body',this.value)">
+      </div>
+      <table style="table-layout:fixed;width:100%"><thead><tr><th style="width:140px">Funcionário</th><th style="width:70px">Horário</th><th style="width:120px">Cargo</th><th style="width:160px">Atividade</th><th>Detalhamento</th><th style="width:110px">Periodicidade</th><th style="width:70px">Tempo</th><th style="width:100px">Status</th></tr></thead>
+      <tbody id="atv-se-body"></tbody></table>
+    </div>
+  </div>
+  <div id="atv-al" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Alagoas</div>
+        <input class="search-input" placeholder="Filtrar atividades…" oninput="filterTable('atv-al-body',this.value)">
+      </div>
+      <table style="table-layout:fixed;width:100%"><thead><tr><th style="width:140px">Funcionário</th><th style="width:70px">Horário</th><th style="width:120px">Cargo</th><th style="width:160px">Atividade</th><th>Detalhamento</th><th style="width:110px">Periodicidade</th><th style="width:70px">Tempo</th><th style="width:100px">Status</th></tr></thead>
+      <tbody id="atv-al-body"></tbody></table>
+    </div>
+  </div>
+  <div id="atv-rec" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Recife</div>
+        <input class="search-input" placeholder="Filtrar atividades…" oninput="filterTable('atv-rec-body',this.value)">
+      </div>
+      <table style="table-layout:fixed;width:100%"><thead><tr><th style="width:140px">Funcionário</th><th style="width:70px">Horário</th><th style="width:120px">Cargo</th><th style="width:160px">Atividade</th><th>Detalhamento</th><th style="width:110px">Periodicidade</th><th style="width:70px">Tempo</th><th style="width:100px">Status</th></tr></thead>
+      <tbody id="atv-rec-body"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ANÁLISE DAS ATIVIDADES -->
+<div id="tab-analise-atividades" class="tab-panel">
+  <div class="section-title">Análise das Atividades</div>
+  <div class="section-sub">Totais e composição das atividades registradas</div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px" id="anl-resumo-grid">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Millena</div>
+      <div id="anl-resumo-se-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Novatec Alagoas</div>
+      <div id="anl-resumo-al-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Novatec Recife</div>
+      <div id="anl-resumo-rec-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);letter-spacing:.05em;margin-bottom:12px">Resumo · Todas as Empresas</div>
+      <div id="anl-resumo-total-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:4px">
+    <div class="section-title" style="margin-bottom:0;font-size:18px">Atividades — totais por coluna</div>
+    <button onclick="exportarAnalise()" style="display:inline-flex;align-items:center;gap:8px;background:#14b8a6;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Exportar Excel
+    </button>
+  </div>
+  <div class="section-sub" style="margin-bottom:16px">Periodicidade, forma de execução, status, campos preenchidos e criação por mês — exclui Horário fixo, Decisão gestor, Decisão consultor, Edições do consultor e Parecer do consultor</div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px" id="anl-cols-grid">
+    <div id="anl-col-se"></div>
+    <div id="anl-col-al"></div>
+    <div id="anl-col-rec"></div>
+    <div id="anl-col-total"></div>
+  </div>
+</div>
+
+<!-- APROVAÇÕES -->
+<div id="tab-aprovacoes" class="tab-panel">
+  <div class="section-title">Aprovações</div>
+  <div class="section-sub">Cruzamento entre atividades enviadas (Relatório) e status de aprovação</div>
+
+  <div class="cards">
+    <div class="card al">
+      <div class="card-label">Total Aprovações</div>
+      <div class="card-value" id="apr-val-total">APR_TOTAL</div>
+      <div class="card-detail apr-det">Millena: APR_SE_TOTAL</div>
+    </div>
+    <div class="card green">
+      <div class="card-label">Aprovados</div>
+      <div class="card-value" id="apr-val-aprov">APR_APROV</div>
+      <div class="card-detail apr-det">Millena: APR_SE_APROV</div>
+    </div>
+    <div class="card orange">
+      <div class="card-label">Pendentes</div>
+      <div class="card-value" id="apr-val-pend">APR_PEND</div>
+      <div class="card-detail apr-det">Millena: APR_SE_PEND</div>
+    </div>
+    <div class="card red">
+      <div class="card-label">Reprovados</div>
+      <div class="card-value" id="apr-val-reprov">APR_REPROV</div>
+      <div class="card-detail apr-det">Millena: APR_SE_REPROV</div>
+    </div>
+  </div>
+
+  <div class="empresa-toggle">
+    <button class="toggle-btn se active" id="apr-toggle-se" onclick="aprToggle('se')">Millena — APR_SE_TOTAL registros</button>
+    <button class="toggle-btn al" id="apr-toggle-al" onclick="aprToggle('al')">Alagoas — APR_AL_TOTAL registros</button>
+    <button class="toggle-btn re" id="apr-toggle-rec" onclick="aprToggle('rec')">Recife — APR_REC_TOTAL registros</button>
+  </div>
+
+  <div id="apr-se">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Millena — Aprovações</div>
+        <input class="search-input" placeholder="Filtrar por nome ou atividade…" oninput="filterTable('apr-se-body',this.value)">
+      </div>
+      <table><thead><tr><th>Funcionário</th><th>Cargo</th><th>Atividade</th><th>Status</th><th>Aprovador</th><th>Data</th><th>No Relatório</th></tr></thead>
+      <tbody id="apr-se-body"></tbody></table>
+    </div>
+  </div>
+  <div id="apr-al" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Alagoas — Aprovações</div>
+        <input class="search-input" placeholder="Filtrar por nome ou atividade…" oninput="filterTable('apr-al-body',this.value)">
+      </div>
+      <table><thead><tr><th>Funcionário</th><th>Cargo</th><th>Atividade</th><th>Status</th><th>Aprovador</th><th>Data</th><th>No Relatório</th></tr></thead>
+      <tbody id="apr-al-body"></tbody></table>
+    </div>
+  </div>
+  <div id="apr-rec" style="display:none">
+    <div class="table-wrap">
+      <div class="table-header">
+        <div class="table-title">Novatec Recife — Aprovações</div>
+        <input class="search-input" placeholder="Filtrar por nome ou atividade…" oninput="filterTable('apr-rec-body',this.value)">
+      </div>
+      <table><thead><tr><th>Funcionário</th><th>Cargo</th><th>Atividade</th><th>Status</th><th>Aprovador</th><th>Data</th><th>No Relatório</th></tr></thead>
+      <tbody id="apr-rec-body"></tbody></table>
+    </div>
+  </div>
+</div>
+
+</main>
+<footer>Millena — Relatório de Mapeamento de Atividades · Gerado em DATE_HOJE</footer>
+
+<script>
+const DATA = DATA_JSON_PLACEHOLDER;
+
+// ── Filtro de data (recalcula tudo no navegador a partir de DATA.*.atividades) ──
+function _normJS(s){
+  if(!s) return '';
+  return s.toString().trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+}
+function _parseDataISO(raw){
+  if(!raw) return null;
+  let v=String(raw).split(',')[0].split('T')[0].split(' ')[0].trim();
+  if(!v) return null;
+  const parts=v.replace(/-/g,'/').split('/');
+  if(parts.length!==3) return null;
+  let d,m,y;
+  if(parts[0].length===4){ y=parts[0]; m=parts[1]; d=parts[2]; } else { d=parts[0]; m=parts[1]; y=parts[2]; }
+  d=d.padStart(2,'0'); m=m.padStart(2,'0');
+  if(y.length!==4||!/^\d{4}$/.test(y)) return null;
+  return `${y}-${m}-${d}`;
+}
+function _dentroIntervalo(raw,de,ate){
+  if(!de && !ate) return true;
+  const iso=_parseDataISO(raw);
+  if(!iso) return false;
+  if(de && iso<de) return false;
+  if(ate && iso>ate) return false;
+  return true;
+}
+function _extrairHorario(raw){
+  if(!raw) return null;
+  const s=String(raw).trim();
+  let resto=null;
+  if(s.includes(',')) resto=s.split(',')[1];
+  else if(s.includes('T')) resto=s.split('T')[1];
+  else if(s.includes(' ')) resto=s.split(' ')[1];
+  if(!resto) return null;
+  const m=resto.trim().match(/^(\d{1,2}):(\d{2})/);
+  if(!m) return null;
+  const h=parseInt(m[1],10), min=parseInt(m[2],10);
+  if(h>23||min>59) return null;
+  return {h, m:min, texto:String(h).padStart(2,'0')+':'+String(min).padStart(2,'0')};
+}
+function _classificarTurno(raw){
+  const info=_extrairHorario(raw);
+  if(!info) return null;
+  if(info.h<12) return 'manha';
+  if(info.h<18) return 'tarde';
+  return 'noite';
+}
+function _passaFiltroAtividade(a,de,ate,turno){
+  if(!_dentroIntervalo(a.criada_em,de,ate)) return false;
+  if(turno && turno!=='todos' && _classificarTurno(a.criada_em)!==turno) return false;
+  return true;
+}
+function _computeEnviosPorData(atividades){
+  const porData={};
+  atividades.forEach(a=>{
+    const iso=_parseDataISO(a.criada_em);
+    if(!iso) return;
+    const [y,m,d]=iso.split('-');
+    const label=d+'/'+m+'/'+y;
+    if(!porData[label]) porData[label]=new Set();
+    porData[label].add(_normJS(a.funcionario));
+  });
+  const resultado={};
+  Object.keys(porData).sort((a,b)=>{
+    const [da,ma,ya]=a.split('/'), [db,mb,yb]=b.split('/');
+    return (ya+ma+da).localeCompare(yb+mb+db);
+  }).forEach(k=>{ resultado[k]=porData[k].size; });
+  return resultado;
+}
+function _registroEmpresa(raw){
+  const map=new Map();
+  (raw.enviaram_list||[]).forEach(p=>map.set(_normJS(p.nome),{nome:p.nome,cargo:p.cargo,setor:p.setor,perfil:p.perfil,status_usr:'Ativo'}));
+  (raw.nao_enviaram_list||[]).forEach(p=>{const k=_normJS(p.nome); if(!map.has(k)) map.set(k,{nome:p.nome,cargo:p.cargo,setor:p.setor,perfil:p.perfil,status_usr:p.status_usr});});
+  return map;
+}
+window._registros={};
+window._setorFiltro='';
+function _setorDe(p){return ((p&&p.setor)||'').toString().trim()||'(sem setor)';}
+function _calcularEmpresaFiltrada(empKey,de,ate,turno,setorF){
+  const raw=DATA[empKey];
+  if(setorF===undefined) setorF=window._setorFiltro;
+  if(!de && !ate && (!turno||turno==='todos') && !setorF) return raw;
+  if(!window._registros[empKey]) window._registros[empKey]=_registroEmpresa(raw);
+  let registro=window._registros[empKey];
+  if(setorF) registro=new Map([...registro].filter(([n,info])=>_setorDe(info)===setorF));
+  const atividadesFiltradas=(raw.atividades||[]).filter(a=>_passaFiltroAtividade(a,de,ate,turno)
+    && (!setorF || registro.has(_normJS(a.funcionario))));
+  const contagem={};
+  atividadesFiltradas.forEach(a=>{const n=_normJS(a.funcionario); contagem[n]=(contagem[n]||0)+1;});
+  const enviaram_list=[], nao_enviaram_list=[];
+  registro.forEach((info,n)=>{
+    if(contagem[n]) enviaram_list.push({nome:info.nome,cargo:info.cargo,setor:info.setor,perfil:info.perfil,atividades:contagem[n]});
+    else nao_enviaram_list.push({nome:info.nome,cargo:info.cargo,setor:info.setor,perfil:info.perfil,status_usr:info.status_usr||'Ativo'});
+  });
+  enviaram_list.sort((a,b)=>b.atividades-a.atividades);
+  nao_enviaram_list.sort((a,b)=>a.nome.localeCompare(b.nome));
+  const cargoMap={};
+  registro.forEach(info=>{const c=info.cargo||''; if(!c) return; if(!cargoMap[c]) cargoMap[c]={total:0,enviaram:0,atividades:0}; cargoMap[c].total++;});
+  enviaram_list.forEach(p=>{const c=p.cargo||''; if(c && cargoMap[c]){cargoMap[c].enviaram++; cargoMap[c].atividades+=p.atividades;}});
+  const cargo_data=Object.entries(cargoMap).map(([cargo,d])=>({cargo,total:d.total,enviaram:d.enviaram,atividades:d.atividades,pct:Math.round(d.enviaram/Math.max(d.total,1)*100)})).sort((a,b)=>b.atividades-a.atividades);
+  const envios_por_data=_computeEnviosPorData(atividadesFiltradas);
+  return {...raw, total:setorF?registro.size:raw.total, enviaram:enviaram_list.length, nao_enviaram:nao_enviaram_list.length, total_atividades:atividadesFiltradas.length, enviaram_list, nao_enviaram_list, cargo_data, atividades:atividadesFiltradas, envios_por_data};
+}
+function _valOuVazioJS(v){v=(v||'').toString().trim(); return v?v:'(vazio)';}
+function _contarCampoJS(atividades,campo){
+  const c={};
+  atividades.forEach(a=>{const k=_valOuVazioJS(a[campo]); c[k]=(c[k]||0)+1;});
+  return Object.fromEntries(Object.entries(c).sort((x,y)=>y[1]-x[1]));
+}
+function _analiseFromAtividades(atividades){
+  const pontos_criticos_count=atividades.filter(a=>(a.pontos_criticos||'').toString().trim()).length;
+  const sugestoes_count=atividades.filter(a=>(a.sugestoes||'').toString().trim()).length;
+  const porMes={};
+  atividades.forEach(a=>{
+    const iso=_parseDataISO(a.criada_em);
+    let mes='(vazio)';
+    if(iso){const [y,m]=iso.split('-'); mes=`${m}/${y}`;}
+    porMes[mes]=(porMes[mes]||0)+1;
+  });
+  const chaveMes=x=>x==='(vazio)'?'9999-99':x.split('/').reverse().join('-');
+  const por_mes=Object.fromEntries(Object.entries(porMes).sort((a,b)=>chaveMes(a[0]).localeCompare(chaveMes(b[0]))));
+  return {
+    total:atividades.length,
+    periodicidade:_contarCampoJS(atividades,'periodicidade'),
+    como_realiza:_contarCampoJS(atividades,'como_realiza'),
+    status:_contarCampoJS(atividades,'status'),
+    pontos_criticos_count, sugestoes_count, por_mes,
+  };
+}
+window._empDataAtual={alagoas:DATA.alagoas, sergipe:DATA.sergipe, recife:DATA.recife};
+window._analiseAtual={
+  alagoas: DATA.analise && DATA.analise.alagoas,
+  sergipe: DATA.analise && DATA.analise.sergipe,
+  recife:  DATA.analise && DATA.analise.recife,
+  total:   DATA.analise && DATA.analise.total,
+};
+function EMP(key){return window._empDataAtual[key];}
+function ANALISE(key){return window._analiseAtual[key];}
+function _recalcularFiltro(de,ate,turno){
+  window._empDataAtual={
+    alagoas:_calcularEmpresaFiltrada('alagoas',de,ate,turno),
+    sergipe:_calcularEmpresaFiltrada('sergipe',de,ate,turno),
+    recife:_calcularEmpresaFiltrada('recife',de,ate,turno),
+  };
+  const ativo=!!(de||ate||(turno&&turno!=='todos')||window._setorFiltro);
+  const atvTotal=[...window._empDataAtual.alagoas.atividades,...window._empDataAtual.sergipe.atividades,...window._empDataAtual.recife.atividades];
+  window._analiseAtual={
+    alagoas: ativo?_analiseFromAtividades(window._empDataAtual.alagoas.atividades):(DATA.analise&&DATA.analise.alagoas),
+    sergipe: ativo?_analiseFromAtividades(window._empDataAtual.sergipe.atividades):(DATA.analise&&DATA.analise.sergipe),
+    recife:  ativo?_analiseFromAtividades(window._empDataAtual.recife.atividades):(DATA.analise&&DATA.analise.recife),
+    total:   ativo?_analiseFromAtividades(atvTotal):(DATA.analise&&DATA.analise.total),
+  };
+}
+function _empresaAtiva(){
+  for(const e of ['al','se','rec']){
+    const btn=document.getElementById('filtro-'+e);
+    if(btn && btn.classList.contains('active')) return e;
+  }
+  return 'todas';
+}
+function _salvarFiltroLocal(de,ate,turno){
+  try{ localStorage.setItem('novatec_filtro_data', JSON.stringify({de,ate,turno})); }catch(e){}
+}
+function _carregarFiltroLocal(){
+  try{ return JSON.parse(localStorage.getItem('novatec_filtro_data')||'null'); }catch(e){ return null; }
+}
+const _TURNO_LABEL={manha:'Manhã (00h–12h)', tarde:'Tarde (12h–18h)', noite:'Noite (18h–24h)'};
+function _atualizarInfoFiltro(){
+  const de=document.getElementById('filtro-data-de').value;
+  const ate=document.getElementById('filtro-data-ate').value;
+  const turno=document.getElementById('filtro-turno').value;
+  const box=document.getElementById('filtro-data-info');
+  const setorF=window._setorFiltro;
+  if(!de && !ate && (!turno||turno==='todos') && !setorF){ box.style.display='none'; return; }
+  const fmt=iso=>iso?iso.split('-').reverse().join('/'):'';
+  const partes=[];
+  if(de && ate) partes.push('período '+fmt(de)+' até '+fmt(ate));
+  else if(de) partes.push('a partir de '+fmt(de));
+  else if(ate) partes.push('até '+fmt(ate));
+  if(turno && turno!=='todos') partes.push('turno '+_TURNO_LABEL[turno]);
+  if(setorF) partes.push('setor '+setorF);
+  let texto='📅 Filtrando por '+partes.join(' · ');
+  texto+=' — cartões, tabelas, gráficos e análise consideram apenas esse filtro.'
+    +(setorF?' Aprovações também são filtradas pelo setor; o Resumo do relatório não.':' (Aprovações e Resumo não são afetados.)');
+  box.textContent=texto;
+  box.style.display='block';
+}
+function _pctColorJS(p){return p>=50?'var(--green)':'var(--red)';}
+function atualizarBlocosEmpresa(){
+  [{key:'alagoas',pre:'al'},{key:'sergipe',pre:'se'},{key:'recife',pre:'rec'}].forEach(({key,pre})=>{
+    const d=EMP(key);
+    const pct=d.enviaram/Math.max(d.total,1)*100;
+    const pctFmt=pct.toFixed(1).replace('.',',');
+    document.getElementById(pre+'-pct-badge').textContent=pctFmt;
+    document.getElementById(pre+'-enviaram-count').textContent=d.enviaram;
+    document.getElementById(pre+'-nao-enviaram-count').textContent=d.nao_enviaram;
+    document.getElementById(pre+'-atividades-count').textContent=d.total_atividades;
+    document.getElementById(pre+'-pct-label').textContent=pctFmt+'%';
+    document.getElementById(pre+'-progress-fill').style.width=pct+'%';
+    document.getElementById(pre+'-progress-fill').style.background=_pctColorJS(pct);
+    document.getElementById(pre+'-trophy').innerHTML=pct>=100?' <span style="font-size:20px;vertical-align:middle;filter:drop-shadow(0 0 8px gold)">\U0001F3C6</span>':'';
+  });
+}
+function aplicarFiltroData(){
+  const de=document.getElementById('filtro-data-de').value;
+  const ate=document.getElementById('filtro-data-ate').value;
+  const turno=document.getElementById('filtro-turno').value;
+  if(de && ate && de>ate){ alert('A data inicial não pode ser depois da data final.'); return; }
+  _recalcularFiltro(de,ate,turno);
+  _salvarFiltroLocal(de,ate,turno);
+  populate();
+  atualizarBlocosEmpresa();
+  atualizarDonuts();
+  filterEmpresa(_empresaAtiva());
+  _atualizarInfoFiltro();
+}
+function limparFiltroData(){
+  document.getElementById('filtro-data-de').value='';
+  document.getElementById('filtro-data-ate').value='';
+  document.getElementById('filtro-turno').value='todos';
+  window._setorFiltro='';
+  _recalcularFiltro('','','todos');
+  _salvarFiltroLocal('','','todos');
+  populate();
+  atualizarBlocosEmpresa();
+  atualizarDonuts();
+  filterEmpresa(_empresaAtiva());
+  _atualizarInfoFiltro();
+}
+
+function renderSetores(){
+  const box=document.getElementById('setor-lista'); if(!box) return;
+  const de=document.getElementById('filtro-data-de').value;
+  const ate=document.getElementById('filtro-data-ate').value;
+  const turno=document.getElementById('filtro-turno').value;
+  const d=_calcularEmpresaFiltrada('sergipe',de,ate,turno,'');
+  const reg=_registroEmpresa(DATA.sergipe), env={};
+  (d.enviaram_list||[]).forEach(p=>env[_normJS(p.nome)]=p.atividades||0);
+  const m={};
+  reg.forEach((info,n)=>{const st=_setorDe(info); const x=m[st]||(m[st]={setor:st,total:0,enviaram:0,atividades:0});
+    x.total++; if(n in env){x.enviaram++; x.atividades+=env[n];}});
+  const lista=Object.values(m).map(x=>({...x,pct:Math.round(x.enviaram/Math.max(x.total,1)*100)}))
+    .sort((a,b)=>(b.enviaram/b.total-a.enviaram/a.total)||(b.total-a.total)||a.setor.localeCompare(b.setor));
+  const sel=window._setorFiltro;
+  box.innerHTML=lista.map(x=>{const cor=x.pct>=70?'#10b981':(x.pct>=30?'#f59e0b':'#ef4444');
+    const cls='setor-row'+(sel?(x.setor===sel?' ativo':' apagado'):'');
+    return `<div class="${cls}" data-setor="${esc(x.setor)}" role="button" tabindex="0" title="Filtrar a página por ${esc(x.setor)}"><div class="setor-top"><span class="setor-nome">${esc(x.setor)}</span><span class="setor-num"><strong>${x.enviaram}</strong>/${x.total} · ${x.atividades} ativ. · <strong style="color:${cor}">${x.pct}%</strong></span></div><div class="setor-track"><div class="setor-fill" style="width:${Math.max(x.pct,2)}%;background:${cor}"></div></div></div>`;}).join('')
+    || '<div class="setor-vazio">Sem setores no cadastro.</div>';
+  const chip=document.getElementById('setor-chip');
+  if(chip){chip.style.display=sel?'':'none'; chip.querySelector('b').textContent=sel;}
+}
+function filtrarSetor(st){
+  window._setorFiltro=(window._setorFiltro===st)?'':(st||'');
+  aplicarFiltroData();
+}
+function _filtrarAprovacoes(){
+  const st=window._setorFiltro;
+  const reg=_registroEmpresa(DATA.sergipe);
+  const raw=(DATA.aprovacoes&&DATA.aprovacoes.sergipe&&DATA.aprovacoes.sergipe.itens)||[];
+  const itens=st?raw.filter(a=>{const i=reg.get(_normJS(a.funcionario)); return i&&_setorDe(i)===st;}):raw;
+  const cont=k=>itens.filter(a=>(a.status||'').toLowerCase().startsWith(k)).length;
+  const put=(id,v)=>{const el=document.getElementById(id); if(el) el.textContent=v;};
+  put('apr-val-total',itens.length); put('apr-val-aprov',cont('aprov'));
+  put('apr-val-pend',cont('pend')); put('apr-val-reprov',cont('reprov'));
+  document.querySelectorAll('.apr-det').forEach(el=>el.style.display=st?'none':'');
+  return itens;
+}
+document.addEventListener('click',e=>{
+  const r=e.target.closest&&e.target.closest('.setor-row'); if(r) filtrarSetor(r.dataset.setor);
+});
+document.addEventListener('keydown',e=>{
+  const r=e.target.closest&&e.target.closest('.setor-row');
+  if(r&&(e.key==='Enter'||e.key===' ')){e.preventDefault(); filtrarSetor(r.dataset.setor);}
+});
+function setor(s){return s==='Técnico'?'<span class="setor-tag setor-tec">Técnico</span>':'<span class="setor-tag setor-corp">Corporativo</span>';}
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+window._chartBars=[];
+function _initChartClick(){
+  const canvas=document.getElementById('chart-envios-data');
+  if(!canvas || canvas._clickBound) return;
+  canvas._clickBound=true;
+  canvas.style.cursor='pointer';
+  canvas.title='Clique em uma barra para filtrar por aquele dia';
+  canvas.addEventListener('click', e=>{
+    const rect=canvas.getBoundingClientRect();
+    const scaleX=canvas.width/rect.width;
+    const x=(e.clientX-rect.left)*scaleX;
+    const bar=window._chartBars.find(b=>x>=b.x0 && x<b.x1);
+    if(!bar || !bar.iso) return;
+    const deAtual=document.getElementById('filtro-data-de').value;
+    const ateAtual=document.getElementById('filtro-data-ate').value;
+    if(deAtual===bar.iso && ateAtual===bar.iso){
+      limparFiltroData();
+    } else {
+      document.getElementById('filtro-data-de').value=bar.iso;
+      document.getElementById('filtro-data-ate').value=bar.iso;
+      aplicarFiltroData();
+    }
+  });
+}
+function drawBarChart(labels, values, color){
+  const canvas=document.getElementById('chart-envios-data');
+  const noData=document.getElementById('chart-no-data');
+  if(!canvas) return;
+  _initChartClick();
+  window._chartBars=[];
+  if(!labels.length){canvas.style.display='none';noData.style.display='flex';return;}
+  noData.style.display='none'; canvas.style.display='block';
+  const W=canvas.parentElement.offsetWidth||520, H=240;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const pad={top:28,right:16,bottom:52,left:38};
+  const cW=W-pad.left-pad.right, cH=H-pad.top-pad.bottom;
+  const maxV=Math.max(...values,1);
+  const n=labels.length;
+  const step=cW/n;
+  const barW=Math.max(14, Math.min(52, step*0.6));
+  // abrevia: "25/06/2026" → "25/06"
+  const shortLabels=labels.map(l=>{const p=l.split('/');return p.length>=2?p[0]+'/'+p[1]:l;});
+  const filtroDe=(document.getElementById('filtro-data-de')||{}).value||'';
+  const filtroAte=(document.getElementById('filtro-data-ate')||{}).value||'';
+  // linhas de grade horizontais
+  ctx.strokeStyle='#2a3441'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad.top+cH*(1-i/4);
+    ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
+    ctx.fillStyle='#64748b'; ctx.font='12px Inter,sans-serif'; ctx.textAlign='right';
+    ctx.fillText(Math.round(maxV/4*i), pad.left-6, y+4);
+  }
+  // barras + labels
+  values.forEach((v,i)=>{
+    const cx=pad.left+step*i+step/2;
+    const x=cx-barW/2;
+    const bH=Math.max(4,(v/maxV)*cH);
+    const y=pad.top+cH-bH;
+    const isoDia=_parseDataISO(labels[i]);
+    const selecionado=isoDia && filtroDe===isoDia && filtroAte===isoDia;
+    window._chartBars.push({label:labels[i], iso:isoDia, x0:pad.left+step*i, x1:pad.left+step*(i+1)});
+    // barra com gradiente
+    const grad=ctx.createLinearGradient(0,y,0,y+bH);
+    grad.addColorStop(0,color); grad.addColorStop(1,color+'44');
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x,y,barW,bH,[4,4,0,0]);
+    else ctx.rect(x,y,barW,bH);
+    ctx.fill();
+    if(selecionado){
+      ctx.lineWidth=2; ctx.strokeStyle='#fbbf24';
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x-1,y-1,barW+2,bH+2,[4,4,0,0]);
+      else ctx.rect(x-1,y-1,barW+2,bH+2);
+      ctx.stroke();
+    }
+    // valor no topo da barra
+    ctx.fillStyle=selecionado?'#fbbf24':'#f1f5f9'; ctx.font='bold 13px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.fillText(v, cx, y-7);
+    // data horizontal embaixo
+    ctx.fillStyle=selecionado?'#fbbf24':'#94a3b8'; ctx.font='bold 12px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.fillText(shortLabels[i], cx, H-12);
+    // linha separadora embaixo da barra
+    ctx.strokeStyle=color+'33'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx,pad.top+cH); ctx.lineTo(cx,pad.top+cH+6); ctx.stroke();
+  });
+}
+function pct_bar(pct){const color=pct===100?'#10b981':pct>0?'#f59e0b':'#ef4444';return `<div class="pct-inline"><div class="pct-track"><div class="pct-fill" style="width:${pct}%;background:${color}"></div></div><span class="pct-num">${pct}%</span></div>`;}
+function status_badge(s){return s.includes('consultor')?'<span class="status-badge status-parcial">Ag. consultor</span>':'<span class="status-badge status-aguardando">Ag. gestor</span>';}
+
+function showTab(id,btn){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+function filterEmpresa(emp){
+  ['todas','al','se','rec'].forEach(e=>{
+    const btn=document.getElementById('filtro-'+e);
+    if(btn) btn.className='toggle-btn'+(e==='al'?' al':e==='se'?' se':e==='rec'?' re':'')+(e===emp?' active':'');
+  });
+  const d={al:EMP('alagoas'),se:EMP('sergipe'),rec:EMP('recife')};
+  let total,env,nenv,atv,pct;
+  if(emp==='todas'){
+    total=d.al.total+d.se.total+d.rec.total;
+    env  =d.al.enviaram+d.se.enviaram+d.rec.enviaram;
+    nenv =d.al.nao_enviaram+d.se.nao_enviaram+d.rec.nao_enviaram;
+    atv  =d.al.total_atividades+d.se.total_atividades+d.rec.total_atividades;
+    pct  =(env/Math.max(total,1)*100).toFixed(1).replace('.',',')+'%';
+  } else {
+    const r=d[emp];
+    total=r.total; env=r.enviaram; nenv=r.nao_enviaram; atv=r.total_atividades;
+    pct=(env/Math.max(total,1)*100).toFixed(1).replace('.',',')+'%';
+  }
+  document.getElementById('val-cadastrados').textContent=total;
+  document.getElementById('val-concluidos').textContent=env;
+  document.getElementById('val-pendentes').textContent=nenv;
+  document.getElementById('val-atividades').textContent=atv;
+  document.getElementById('val-adesao').textContent=pct;
+  // Detalhes por filial nos cartões: ocultar quando filtro único
+  document.querySelectorAll('.card-detalhe').forEach(el=>{el.style.display=emp==='todas'?'':'none';});
+  // Blocos de empresa
+  ['al','se','rec'].forEach(e=>{
+    const el=document.getElementById('bloco-'+e);
+    if(el) el.style.display=(emp==='todas'||emp===e)?'':'none';
+  });
+  // Tabela de enviaram — re-renderiza via filtrarEnviaram para contar corretamente
+  window._vgEmpresa=emp;
+  filtrarEnviaram(window._vgFiltro);
+  // Alerta crítico dinâmico
+  const alertBox=document.getElementById('alerta-criticos');
+  if(alertBox){
+    document.querySelectorAll('.alerta-linha').forEach(el=>{
+      el.style.display=(emp==='todas'||el.dataset.filial===emp)?'':'none';
+    });
+    const algumVisivel=[...document.querySelectorAll('.alerta-linha')].some(el=>el.style.display!=='none');
+    alertBox.style.display=algumVisivel?'':'none';
+  }
+  // Cartão Novas Atividades dinâmico
+  const cardNovas=document.getElementById('card-novas');
+  const valNovas=document.getElementById('val-novas');
+  if(cardNovas && valNovas){
+    if(emp==='todas'){
+      valNovas.textContent=cardNovas.dataset.total;
+      ['se','al','rec'].forEach(e=>{const el=document.getElementById('det-novas-'+e);if(el)el.style.display='';});
+    } else {
+      valNovas.textContent=cardNovas.dataset[emp];
+      ['se','al','rec'].forEach(e=>{const el=document.getElementById('det-novas-'+e);if(el)el.style.display=e===emp?'':'none';});
+    }
+  }
+  // Gráfico de envios por data
+  const grid=document.getElementById('empresa-grid');
+  const chartBloco=document.getElementById('bloco-chart');
+  const colorMap={al:'#2563eb',se:'#7c3aed',rec:'#f97316'};
+  const empKey={al:'alagoas',se:'sergipe',rec:'recife'};
+  const nomeFilial={al:'Novatec Alagoas',se:'Millena',rec:'Novatec Recife'};
+  if(emp==='todas'){
+    if(grid) grid.style.gridTemplateColumns='repeat(3,1fr)';
+    if(chartBloco) chartBloco.style.display='none';
+  } else {
+    if(grid) grid.style.gridTemplateColumns='1fr 2fr';
+    if(chartBloco){ chartBloco.style.display='flex'; chartBloco.style.flexDirection='column'; }
+    const empData=EMP(empKey[emp]);
+    const datas=empData.envios_por_data||{};
+    const labels=Object.keys(datas);
+    const values=Object.values(datas);
+    document.getElementById('chart-titulo').textContent='Envios por Data — '+nomeFilial[emp];
+    requestAnimationFrame(()=>requestAnimationFrame(()=>drawBarChart(labels,values,colorMap[emp])));
+  }
+}
+function cargoToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('cargo-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('cargo-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function naoToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('nao-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('nao-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function envToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('env-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('env-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function exportarEnviaram(){
+  const toggles={al:'env-toggle-al',se:'env-toggle-se',rec:'env-toggle-rec'};
+  let empAtiva='todas';
+  for(const [e,id] of Object.entries(toggles)){
+    const btn=document.getElementById(id);
+    if(btn && btn.classList.contains('active')){empAtiva=e;break;}
+  }
+  const fontes={
+    al:{filial:'Novatec Alagoas',lista:EMP('alagoas').enviaram_list},
+    se:{filial:'Millena',lista:EMP('sergipe').enviaram_list},
+    rec:{filial:'Novatec Recife', lista:EMP('recife').enviaram_list},
+  };
+  const selecionadas=empAtiva==='todas'?Object.values(fontes):[fontes[empAtiva]];
+  const linhas=[['Filial','Nome','Cargo','Setor','Perfil','Atividades']];
+  selecionadas.forEach(({filial,lista})=>{
+    lista.forEach(p=>{linhas.push([filial,p.nome,p.cargo,p.setor,p.perfil,p.atividades]);});
+  });
+  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
+  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'');
+  const sufixo=empAtiva==='todas'?'Todas':fontes[empAtiva].filial.replace(/\\s+/g,'_');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='Enviaram_'+sufixo+'_'+hoje+'.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function exportarAtividades(){
+  const toggles={al:'atv-toggle-al',se:'atv-toggle-se',rec:'atv-toggle-rec'};
+  let empAtiva='todas';
+  for(const [e,id] of Object.entries(toggles)){
+    const btn=document.getElementById(id);
+    if(btn && btn.classList.contains('active')){empAtiva=e;break;}
+  }
+  const fontes={
+    al:{filial:'Novatec Alagoas', lista:EMP('alagoas').atividades},
+    se:{filial:'Millena', lista:EMP('sergipe').atividades},
+    rec:{filial:'Novatec Recife', lista:EMP('recife').atividades},
+  };
+  const selecionadas=empAtiva==='todas'?Object.values(fontes):[fontes[empAtiva]];
+  const linhas=[['Filial','Funcionário','Horário','Turno','Cargo','Setor','Atividade','Detalhamento','Periodicidade','Tempo','Status']];
+  const _turnoNome={manha:'Manhã',tarde:'Tarde',noite:'Noite'};
+  selecionadas.forEach(({filial,lista})=>{
+    lista.forEach(a=>{
+      const _h=_extrairHorario(a.criada_em);
+      const _t=_classificarTurno(a.criada_em);
+      linhas.push([filial,a.funcionario,_h?_h.texto:'',_t?_turnoNome[_t]:'',a.cargo,a.setor,a.nome,(a.detalhamento||'').replace(/\\r?\\n/g,' | '),a.periodicidade,a.tempo,a.status]);
+    });
+  });
+  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
+  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'');
+  const sufixo=empAtiva==='todas'?'Todas':fontes[empAtiva].filial.replace(/\s+/g,'_');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='Atividades_'+sufixo+'_'+hoje+'.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function exportarAnalise(){
+  const fontes=[
+    {filial:'Millena', d:ANALISE('sergipe')},
+  ];
+  const linhas=[['Filial','Categoria','Item','Quantidade','Percentual']];
+  fontes.forEach(({filial,d})=>{
+    if(!d) return;
+    const total=d.total||0;
+    const pct=q=>total?Math.round(q/total*100)+'%':'';
+    const addBreak=(cat,obj)=>{
+      Object.entries(obj||{}).forEach(([item,qtd])=>{linhas.push([filial,cat,item,qtd,pct(qtd)]);});
+    };
+    addBreak('Periodicidade', d.periodicidade);
+    addBreak('Como realiza', d.como_realiza);
+    addBreak('Status', d.status);
+    linhas.push([filial,'Pontos Críticos','Preenchidos',d.pontos_criticos_count,pct(d.pontos_criticos_count)]);
+    linhas.push([filial,'Sugestões','Preenchidas',d.sugestoes_count,pct(d.sugestoes_count)]);
+    addBreak('Criadas por mês', d.por_mes);
+  });
+  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
+  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='Analise_Atividades_'+hoje+'.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function atvToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('atv-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('atv-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function verToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('ver-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('ver-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function resumoCard(label,val,cor){
+  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">${label}</div>
+    <div style="font-size:20px;font-weight:700;color:${cor||'var(--white)'}">${val}</div>
+  </div>`;
+}
+function renderResumo(prefix){
+  if(!DATA.resumo) return;
+  prefix = prefix || 'resumo';
+  const r={al:DATA.resumo.alagoas, se:DATA.resumo.sergipe, rec:DATA.resumo.recife, total:DATA.resumo.total};
+  ['se','al','rec','total'].forEach(e=>{
+    const d=r[e];
+    const el=document.getElementById(`${prefix}-${e}-cards`);
+    if(!el) return;
+    el.innerHTML=
+      resumoCard('Aprovadas',d.aprovadas,'#10b981')+
+      resumoCard('Ressalvas',d.ressalvas,'#f59e0b')+
+      resumoCard('Ag. Gestor',d.ag_gestor,'#f59e0b')+
+      resumoCard('Ag. Consultor',d.ag_consultor,'#60a5fa')+
+      resumoCard('Editadas',d.editadas,'var(--white)')+
+      resumoCard('Com Parecer',d.com_parecer,'var(--white)')+
+      `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;grid-column:span 3">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Tempo Total Mapeado</div>
+        <div style="font-size:20px;font-weight:700;color:#a78bfa">${d.tempo_total}h</div>
+      </div>`;
+  });
+}
+function breakdownBlock(title, obj, total, cor){
+  cor = cor || '#334155';
+  const tarja = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#fff;letter-spacing:.05em;background:${cor}33;border-left:3px solid ${cor};padding:5px 10px;border-radius:5px;margin-bottom:8px">${title}</div>`;
+  const entries=Object.entries(obj||{});
+  if(!entries.length) return `<div style="margin-bottom:14px">${tarja}<div style="font-size:12px;color:var(--muted)">Sem registros</div></div>`;
+  const rows=entries.map(([k,v])=>{
+    const pct=total?Math.round(v/total*100):0;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--subtle)">${esc(k)}</span>
+      <span style="display:flex;align-items:center;gap:6px"><span class="count-pill">${v}</span><span style="color:var(--muted);font-size:11px;min-width:32px;text-align:right">${pct}%</span></span>
+    </div>`;
+  }).join('');
+  return `<div style="margin-bottom:14px">
+    ${tarja}
+    ${rows}
+  </div>`;
+}
+function renderAnalise(){
+  if(!DATA.analise) return;
+  const a={al:ANALISE('alagoas'), se:ANALISE('sergipe'), rec:ANALISE('recife'), total:ANALISE('total')};
+  const nomes={al:'Novatec Alagoas', se:'Millena', rec:'Novatec Recife', total:'Todas as Empresas'};
+  const corBarra={al:'#2563eb', se:'#7c3aed', rec:'#f97316', total:'#14b8a6'};
+  const corTexto={al:'#60a5fa', se:'#a78bfa', rec:'#fdba74', total:'#2dd4bf'};
+  ['se','al','rec','total'].forEach(e=>{
+    const d=a[e];
+    const el=document.getElementById(`anl-col-${e}`);
+    if(!el||!d) return;
+    const totalAtv=d.total||0;
+    const mesesRows=Object.entries(d.por_mes||{}).map(([mes,q])=>
+      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--subtle)">${mes}</span><span class="count-pill">${q}</span>
+      </div>`).join('') || '<div style="font-size:12px;color:var(--muted)">Sem registros</div>';
+    el.innerHTML=`
+      <div style="background:var(--surface);border:1px solid var(--border);border-top:3px solid ${corBarra[e]};border-radius:12px;padding:16px;height:100%">
+        <div style="font-size:13px;font-weight:700;color:${corTexto[e]};margin-bottom:10px">${nomes[e]} <span class="count-pill" style="margin-left:6px">${totalAtv} atividades</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Pontos Críticos</div>
+            <div style="font-size:18px;font-weight:700;color:var(--white)">${d.pontos_criticos_count} <span style="font-size:11px;color:var(--muted);font-weight:500">/ ${totalAtv}</span></div>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px">Sugestões</div>
+            <div style="font-size:18px;font-weight:700;color:var(--white)">${d.sugestoes_count} <span style="font-size:11px;color:var(--muted);font-weight:500">/ ${totalAtv}</span></div>
+          </div>
+        </div>
+        ${breakdownBlock('Periodicidade', d.periodicidade, totalAtv, corBarra[e])}
+        ${breakdownBlock('Como realiza', d.como_realiza, totalAtv, corBarra[e])}
+        ${breakdownBlock('Status', d.status, totalAtv, corBarra[e])}
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#fff;letter-spacing:.05em;background:${corBarra[e]}33;border-left:3px solid ${corBarra[e]};padding:5px 10px;border-radius:5px;margin-bottom:8px">Criadas por mês</div>
+        ${mesesRows}
+      </div>`;
+  });
+}
+function renderVersoes(){
+  if(!DATA.versoes) return;
+  const _vmap={al:'alagoas',se:'sergipe',rec:'recife'};
+  ['al','se','rec'].forEach(e=>{
+    const tb=document.getElementById(`ver-${e}-body`);
+    const itens=DATA.versoes[_vmap[e]];
+    if(!itens||itens.length===0){
+      tb.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Nenhum registro de versão ou parecer</td></tr>';
+      return;
+    }
+    tb.innerHTML=itens.map(v=>`<tr>
+      <td><strong style="font-size:12px">${v.funcionario}</strong></td>
+      <td style="font-size:12px">${v.atividade}</td>
+      <td><span class="status-badge status-aguardando" style="font-size:10px">${v.tipo}</span></td>
+      <td style="font-size:12px;color:var(--subtle)">${v.autor}</td>
+      <td style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace">${v.data}</td>
+      <td style="font-size:12px;color:var(--text);max-width:300px">${v.conteudo}</td>
+    </tr>`).join('');
+  });
+}
+function aprToggle(emp){
+  ['al','se','rec'].forEach(e=>{document.getElementById('apr-'+e).style.display=emp===e?'':'none';});
+  ['al','se','rec'].forEach(e=>{document.getElementById('apr-toggle-'+e).className='toggle-btn '+e+(emp===e?' active':'');});
+}
+function apr_status_badge(s){
+  if(s==='Aprovado') return '<span class="status-badge" style="background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)">Aprovado</span>';
+  if(s==='Reprovado') return '<span class="status-badge" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)">Reprovado</span>';
+  return '<span class="status-badge status-aguardando">Pendente</span>';
+}
+function exportarPendentes(){
+  // Detecta qual filial está ativa
+  const toggles={al:'nao-toggle-al',se:'nao-toggle-se',rec:'nao-toggle-rec'};
+  let empAtiva='todas';
+  for(const [e,id] of Object.entries(toggles)){
+    const btn=document.getElementById(id);
+    if(btn && btn.classList.contains('active')){empAtiva=e;break;}
+  }
+  const fontes={
+    al:{filial:'Novatec Alagoas', lista:EMP('alagoas').nao_enviaram_list},
+    se:{filial:'Millena', lista:EMP('sergipe').nao_enviaram_list},
+    rec:{filial:'Novatec Recife',  lista:EMP('recife').nao_enviaram_list},
+  };
+  const selecionadas = empAtiva==='todas' ? Object.values(fontes) : [fontes[empAtiva]];
+  const linhas=[['Filial','Nome','Cargo','Setor','Perfil','Status']];
+  selecionadas.forEach(({filial,lista})=>{
+    lista.forEach(p=>{linhas.push([filial, p.nome, p.cargo, p.setor, p.perfil, p.status_usr]);});
+  });
+  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
+  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'');
+  const sufixo=empAtiva==='todas'?'Todas':fontes[empAtiva].filial.replace(/\s+/g,'_');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='Pendentes_'+sufixo+'_'+hoje+'.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function filterTable(tbodyId,q){
+  document.getElementById(tbodyId).querySelectorAll('tr').forEach(r=>{
+    r.style.display=r.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';
+  });
+}
+function drawDonut(id,sent,total,colorSent){
+  const c=document.getElementById(id);if(!c)return;
+  const ctx=c.getContext('2d'),cx=c.width/2,cy=c.height/2,r=46,TAU=Math.PI*2,pct=sent/Math.max(total,1);
+  const duration=1200,start=performance.now();
+  function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
+  function frame(now){
+    const t=Math.min((now-start)/duration,1),current=ease(t)*pct;
+    ctx.clearRect(0,0,c.width,c.height);
+    ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.lineWidth=13;ctx.strokeStyle='#1c2330';ctx.stroke();
+    if(current>0){ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+TAU*current);ctx.lineWidth=13;ctx.strokeStyle=colorSent;ctx.lineCap='round';ctx.stroke();}
+    ctx.fillStyle='#f8fafc';ctx.font='bold 22px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(Math.round(current*100)+'%',cx,cy);
+    if(t<1)requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+const _DONUTS=[
+  {id:'donut-al', key:'alagoas'},
+  {id:'donut-se', key:'sergipe'},
+  {id:'donut-rec',key:'recife'},
+];
+function atualizarDonuts(){
+  _DONUTS.forEach(d=>drawDonut(d.id,EMP(d.key).enviaram,EMP(d.key).total,'#10b981'));
+}
+function startDonutLoop(){
+  atualizarDonuts();
+  setInterval(atualizarDonuts,10000);
+}
+function setHtml(id, rows){document.getElementById(id).innerHTML=rows.join('');}
+function _vgRow(p){
+  return p.pendente
+    ? `<tr style="background:rgba(245,158,11,.07)"><td><span style="color:#f59e0b;font-weight:700">⚠ ${p.nome}</span></td><td style="font-size:12px;color:#f59e0b">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span style="font-size:11px;color:#f59e0b;font-weight:600">Pendente</span></td></tr>`
+    : `<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span class="count-pill">${p.atividades}</span></td></tr>`;
+}
+window._vgFiltro='todos';
+window._vgEmpresa='todas';
+function filtrarEnviaram(tipo){
+  window._vgFiltro=tipo;
+  const busca=(document.getElementById('vg-search').value||'').toLowerCase().trim();
+  const emp=window._vgEmpresa||'todas';
+  const filialMap={al:'Alagoas',se:'Millena',rec:'Recife'};
+  const filialFiltro=emp!=='todas'?filialMap[emp]:null;
+  let envBase=filialFiltro?window._vgEnv.filter(p=>p.filial===filialFiltro):window._vgEnv;
+  let naoBase=filialFiltro?window._vgNao.filter(p=>p.filial===filialFiltro):window._vgNao;
+  let rows=tipo==='enviaram'?envBase:tipo==='pendentes'?naoBase:[...envBase,...naoBase];
+  if(busca) rows=rows.filter(p=>p.nome.toLowerCase().includes(busca));
+  setHtml('tb-enviaram',rows.map(_vgRow));
+  const total=envBase.length+naoBase.length;
+  let label;
+  if(busca) label=rows.length+' resultado'+(rows.length!==1?'s':'')+' de '+total+' — "'+busca+'"';
+  else if(tipo==='todos') label=total+' pessoas · '+envBase.length+' enviaram · '+naoBase.length+' pendentes';
+  else if(tipo==='enviaram') label=rows.length+' de '+total+' enviaram';
+  else label=rows.length+' de '+total+' pendentes';
+  document.getElementById('count-tb-enviaram').textContent=label;
+  const cores={todos:'var(--accent)',enviaram:'#10b981',pendentes:'#f59e0b'};
+  ['todos','enviaram','pendentes'].forEach(t=>{
+    const b=document.getElementById('fg-btn-'+t);
+    const ativo=t===tipo;
+    b.style.background=ativo?cores[t]:'transparent';
+    b.style.color=ativo?'#fff':'var(--subtle)';
+    b.style.fontWeight=ativo?'600':'400';
+  });
+}
+function exportarVisaoGeral(){
+  const rows=window._vgFiltro==='enviaram'?window._vgEnv:window._vgFiltro==='pendentes'?window._vgNao:[...window._vgEnv,...window._vgNao];
+  const linhas=[['Nome','Cargo','Setor','Filial','Status','Atividades'],...rows.map(p=>[p.nome,p.cargo,p.setor||'',p.filial,p.pendente?'Pendente':'Enviou',p.pendente?0:p.atividades])];
+  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
+  const blob=new Blob(['\\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\\//g,'');
+  a.href=url;a.download='Visao_Geral_'+hoje+'.csv';a.click();
+  URL.revokeObjectURL(url);
+}
+function populate(){
+  // Enviaram + Não enviaram — armazena globalmente para filtro
+  window._vgEnv=[...EMP('alagoas').enviaram_list.map(p=>({...p,filial:'Alagoas',cor:'#2563eb',pendente:false})),
+   ...EMP('sergipe').enviaram_list.map(p=>({...p,filial:'Millena',cor:'#7c3aed',pendente:false})),
+   ...EMP('recife').enviaram_list.map(p=>({...p,filial:'Recife',cor:'#f97316',pendente:false}))]
+    .sort((a,b)=>b.atividades-a.atividades);
+  window._vgNao=[...EMP('alagoas').nao_enviaram_list.map(p=>({...p,filial:'Alagoas',cor:'#2563eb',pendente:true,atividades:0})),
+   ...EMP('sergipe').nao_enviaram_list.map(p=>({...p,filial:'Millena',cor:'#7c3aed',pendente:true,atividades:0})),
+   ...EMP('recife').nao_enviaram_list.map(p=>({...p,filial:'Recife',cor:'#f97316',pendente:true,atividades:0}))]
+    .sort((a,b)=>a.nome.localeCompare(b.nome));
+  filtrarEnviaram('todos');
+  // Cargo
+  setHtml('tb-cargo-al',EMP('alagoas').cargo_data.map(c=>`<tr><td><strong style="font-size:12px">${c.cargo}</strong></td><td style="text-align:center">${c.total}</td><td style="text-align:center">${c.enviaram}</td><td style="text-align:center"><span class="count-pill">${c.atividades}</span></td><td class="pct-bar-cell">${pct_bar(c.pct)}</td></tr>`));
+  setHtml('tb-cargo-se',EMP('sergipe').cargo_data.map(c=>`<tr><td><strong style="font-size:12px">${c.cargo}</strong></td><td style="text-align:center">${c.total}</td><td style="text-align:center">${c.enviaram}</td><td style="text-align:center"><span class="count-pill">${c.atividades}</span></td><td class="pct-bar-cell">${pct_bar(c.pct)}</td></tr>`));
+  setHtml('tb-cargo-rec',EMP('recife').cargo_data.map(c=>`<tr><td><strong style="font-size:12px">${c.cargo}</strong></td><td style="text-align:center">${c.total}</td><td style="text-align:center">${c.enviaram}</td><td style="text-align:center"><span class="count-pill">${c.atividades}</span></td><td class="pct-bar-cell">${pct_bar(c.pct)}</td></tr>`));
+  // Nao enviaram
+  const statusBadge=s=>s==='Inativo'?'<span class="status-badge" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)">Inativo</span>':'<span class="status-badge" style="background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)">Ativo</span>';
+  const naoRow=p=>`<tr><td>${p.nome}</td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td>${statusBadge(p.status_usr)}</td></tr>`;
+  setHtml('nao-al-body',EMP('alagoas').nao_enviaram_list.map(naoRow));
+  setHtml('nao-se-body',EMP('sergipe').nao_enviaram_list.map(naoRow));
+  setHtml('nao-rec-body',EMP('recife').nao_enviaram_list.map(naoRow));
+  // Enviaram detalhado
+  setHtml('env-al-body',EMP('alagoas').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
+  setHtml('env-se-body',EMP('sergipe').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
+  setHtml('env-rec-body',EMP('recife').enviaram_list.map(p=>`<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td style="font-size:11px;color:var(--muted)">${p.perfil}</td><td style="text-align:center"><span class="count-pill">${p.atividades}</span></td></tr>`));
+  renderSetores();
+  renderResumo('resumo');
+  renderResumo('anl-resumo');
+  renderAnalise();
+  renderVersoes();
+  // Atividades
+  const atvRow=a=>{const _h=_extrairHorario(a.criada_em); return `<tr><td style="font-size:12px"><strong>${esc(a.funcionario)}</strong></td><td style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace">${_h?_h.texto:'—'}</td><td style="font-size:11px;color:var(--subtle)">${esc(a.cargo)}</td><td>${esc(a.nome)}</td><td style="font-size:11px;color:var(--text);white-space:pre-line;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;cursor:pointer" onclick="this.style.webkitLineClamp=this.style.webkitLineClamp==='unset'?'4':'unset'">${esc(a.detalhamento)}</td><td style="font-size:11px;color:var(--subtle)">${esc(a.periodicidade)}</td><td><span class="count-pill">${esc(a.tempo)}</span></td><td>${status_badge(a.status)}</td></tr>`;};
+  setHtml('atv-al-body',EMP('alagoas').atividades.map(atvRow));
+  setHtml('atv-se-body',EMP('sergipe').atividades.map(atvRow));
+  setHtml('atv-rec-body',EMP('recife').atividades.map(atvRow));
+  // Aprovações
+  const aprRow=a=>{const rel=a.tem_relatorio?'<span style="color:#10b981;font-size:11px">Sim</span>':'<span style="color:#ef4444;font-size:11px">Não</span>';return `<tr><td><strong style="font-size:12px">${a.funcionario}</strong></td><td style="font-size:11px;color:var(--subtle)">${a.cargo}</td><td>${a.atividade}</td><td>${apr_status_badge(a.status)}</td><td style="font-size:11px;color:var(--muted)">${a.aprovador}</td><td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">${a.data}</td><td>${rel}</td></tr>`;};
+  if(DATA.aprovacoes){
+    if(DATA.aprovacoes.alagoas) setHtml('apr-al-body',DATA.aprovacoes.alagoas.itens.map(aprRow));
+    if(DATA.aprovacoes.sergipe) setHtml('apr-se-body',_filtrarAprovacoes().map(aprRow));
+    if(DATA.aprovacoes.recife)  setHtml('apr-rec-body',DATA.aprovacoes.recife.itens.map(aprRow));
+  }
+}
+function calcularPrazo(){
+  const prazo = new Date('PRAZO_ISO');
+  if(isNaN(prazo)) return;  // sem prazo no config.json: fica "--"
+  const agora = new Date();
+  const diff  = prazo - agora;
+  const card  = document.getElementById('card-prazo');
+  const pad   = n => String(Math.floor(n)).padStart(2,'0');
+  const setColor = c => {
+    ['p-dias','p-horas','p-min','p-seg'].forEach(id=>{
+      document.getElementById(id).style.color = c;
+    });
+  };
+  if(diff <= 0){
+    ['p-dias','p-horas','p-min','p-seg'].forEach(id=>{document.getElementById(id).textContent='00';});
+    setColor('#f59e0b');
+    return;
+  }
+  const dias  = Math.floor(diff / 86400000);
+  const horas = Math.floor((diff % 86400000) / 3600000);
+  const min   = Math.floor((diff % 3600000)  / 60000);
+  const seg   = Math.floor((diff % 60000)    / 1000);
+  document.getElementById('p-dias').textContent  = pad(dias);
+  document.getElementById('p-horas').textContent = pad(horas);
+  document.getElementById('p-min').textContent   = pad(min);
+  document.getElementById('p-seg').textContent   = pad(seg);
+  setColor('#f59e0b');
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  const filtroSalvo=_carregarFiltroLocal();
+  if(filtroSalvo && (filtroSalvo.de||filtroSalvo.ate||(filtroSalvo.turno&&filtroSalvo.turno!=='todos'))){
+    document.getElementById('filtro-data-de').value=filtroSalvo.de||'';
+    document.getElementById('filtro-data-ate').value=filtroSalvo.ate||'';
+    document.getElementById('filtro-turno').value=filtroSalvo.turno||'todos';
+    _recalcularFiltro(filtroSalvo.de||'', filtroSalvo.ate||'', filtroSalvo.turno||'todos');
+  }
+  populate();
+  atualizarBlocosEmpresa();
+  startDonutLoop();
+  filterEmpresa(_empresaAtiva());
+  _atualizarInfoFiltro();
+  calcularPrazo();
+  setInterval(calcularPrazo, 1000);
+  setTimeout(()=>location.reload(), 2 * 60 * 1000);
+});
+</script>
+</body>
+</html>"""
+
+# ── Alerta dinâmico ───────────────────────────────────────────────────────────
+_threshold_critico = 30
+_crits = []
+for _en, _key, _ed, _ep in [('Millena', 'se', se, pct_se)]:
+    if _ep < _threshold_critico:
+        _crits.append(
+            f'<div class="alerta-linha" data-filial="{_key}">'
+            f'<strong>{_en} com adesão crítica:</strong> apenas {_ed["enviaram"]} de {_ed["total"]} '
+            f'funcionários cadastrados realizaram envio ({fmt(_ep)}%). Requer ação imediata de acompanhamento.'
+            f'</div>'
+        )
+_alert_html = (
+    '<div class="alert alert-red" id="alerta-criticos" style="margin-bottom:20px">'
+    '<span class="alert-icon">⚠️</span>'
+    '<div>' + ''.join(_crits) + '</div></div>'
+) if _crits else '<div id="alerta-criticos" style="display:none"></div>'
+
+def _pct_color(p): return 'var(--green)' if p >= 50 else 'var(--red)'
+
+# ── Substituições ──────────────────────────────────────────────────────────────
+replacements = {
+    'PRAZO_TXT':     PRAZO_TXT,
+    'PRAZO_ISO':     PRAZO_ISO,
+    'DATE_HOJE':     HOJE,
+    'DATE_HORA':     HORA,
+    'HORA_REF':      _hora_ref,
+    'DATA_JSON_PLACEHOLDER': DATA_JSON,
+    'TOTAL_USERS':   str(total_users),
+    'AL_TOTAL':      str(al['total']),
+    'SE_TOTAL':      str(se['total']),
+    'RE_TOTAL':      str(rec['total']),
+    # NENV_TOTAL deve vir ANTES de ENV_TOTAL (evitar substituição parcial)
+    'NENV_TOTAL':    str(total_nenv),
+    'AL_NENV':       str(al['nao_enviaram']),
+    'SE_NENV':       str(se['nao_enviaram']),
+    'RE_NENV':       str(rec['nao_enviaram']),
+    'ENV_TOTAL':     str(total_env),
+    'AL_ENV':        str(al['enviaram']),
+    'SE_ENV':        str(se['enviaram']),
+    'RE_ENV':        str(rec['enviaram']),
+    'ATV_TOTAL':     str(total_atv),
+    'AL_ATV':        str(al['total_atividades']),
+    'SE_ATV':        str(se['total_atividades']),
+    'RE_ATV':        str(rec['total_atividades']),
+    'PCT_GLOBAL':    fmt(pct_global),
+    'PCT_AL':        fmt(pct_al),
+    'SE_PCT':        fmt(pct_se),
+    'RE_PCT':        fmt(pct_rec),
+    'PCT_AL_RAW':    str(pct_al),
+    'SE_PCT_RAW':    str(pct_se),
+    'RE_PCT_RAW':    str(pct_rec),
+    'AL_PROGRESS_COLOR':  _pct_color(pct_al),
+    'SE_PROGRESS_COLOR':  _pct_color(pct_se),
+    'REC_PROGRESS_COLOR': _pct_color(pct_rec),
+    'N_CARGOS_AL':   str(n_cargos_al),
+    'N_CARGOS_SE':   str(n_cargos_se),
+    'N_CARGOS_REC':  str(n_cargos_rec),
+    # Aprovações — específicos antes dos genéricos para evitar colisão
+    'APR_REC_TOTAL':  str(apr_rec['total']),
+    'APR_REC_APROV':  str(apr_rec['aprovados']),
+    'APR_REC_PEND':   str(apr_rec['pendentes']),
+    'APR_REC_REPROV': str(apr_rec['reprovados']),
+    'APR_AL_TOTAL':   str(apr_al['total']),
+    'APR_SE_TOTAL':   str(apr_se['total']),
+    'APR_AL_APROV':   str(apr_al['aprovados']),
+    'APR_SE_APROV':   str(apr_se['aprovados']),
+    'APR_AL_PEND':    str(apr_al['pendentes']),
+    'APR_SE_PEND':    str(apr_se['pendentes']),
+    'APR_AL_REPROV':  str(apr_al['reprovados']),
+    'APR_SE_REPROV':  str(apr_se['reprovados']),
+    'APROV_NAV_DISPLAY': 'inline-flex' if TEM_APROVACOES else 'none',
+    'APR_TOTAL':     str(apr_total),
+    'APR_APROV':     str(apr_aprov),
+    'APR_PEND':      str(apr_pend),
+    'APR_REPROV':    str(apr_reprov),
+    'NOVOS_ENVIOS_CARD':  novos_card,
+    'ALERT_CRITICOS_HTML': _alert_html,
+    'AL_TROPHY_HTML': trophy_al,
+    'SE_TROPHY_HTML': trophy_se,
+    'RE_TROPHY_HTML': trophy_rec,
+}
+
+html = HTML
+for k, v in sorted({**replacements, 'SETOR_HTML_PLACEHOLDER': SETOR_HTML, 'LOGO_SRC_PLACEHOLDER': LOGO_SRC}.items(), key=lambda kv: -len(kv[0])):
+    html = html.replace(k, v)
+
+# ── Salvar ────────────────────────────────────────────────────────────────────
+output = BASE / f'Dashboard_Millena_{DATA_ARQUIVO}.html'
+output.write_text(html, encoding='utf-8')
+print(f'Dashboard gerado: {output.name}')
+
+# ── ZIP para envio por e-mail (evita bloqueio de antivírus) ──────────────────
+zip_output = BASE / f'Dashboard_Millena_{DATA_ARQUIVO}.zip'
+with zipfile.ZipFile(zip_output, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.write(output, output.name)
+print(f'ZIP gerado:       {zip_output.name}  (use este para enviar por e-mail)')
+
+# ── ZIP com nome fixo (link permanente no OneDrive — sempre a versão mais recente) ──
+zip_latest = BASE / 'Dashboard_Millena_LATEST.zip'
+with zipfile.ZipFile(zip_latest, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.write(output, output.name)
+print(f'ZIP permanente:   {zip_latest.name}  (compartilhe o link OneDrive deste)')
+
+print(f'Millena      : {se["total"]} usuarios | {se["enviaram"]} enviaram | {se["nao_enviaram"]} nao enviaram | {se["total_atividades"]} atividades')
+
+# ── Abrir no navegador apenas na primeira execução do dia ────────────────────
+# Usa nome fixo para que a aba já aberta seja reutilizada pelo browser.
+# O HTML tem setTimeout que recarrega a cada 2 min — sem nova aba a cada ciclo.
+html_atual = BASE / 'Dashboard_Millena_ATUAL.html'
+html_atual.write_text(html, encoding='utf-8')
+
+_browser_flag = BASE / '.browser_opened.flag'
+_abrir_browser = True
+if _browser_flag.exists():
+    try:
+        _flag_data = json.loads(_browser_flag.read_text(encoding='utf-8'))
+        if _flag_data.get('data') == HOJE:
+            _abrir_browser = False
+    except Exception:
+        pass
+
+if _abrir_browser:
+    webbrowser.open(html_atual.as_uri())
+    _browser_flag.write_text(json.dumps({'data': HOJE}), encoding='utf-8')
+    print(f'Navegador aberto: {html_atual.name}')
+else:
+    print(f'Dashboard atualizado — aba existente recarregara automaticamente em ate 2 min.')
+
+# ── Exportar Atividades por Empresa (.xlsx) ───────────────────────────────────
+_PASTA_ATV = BASE.parent / "ATIVIDADES ENVIADAS"
+_PASTA_ATV.mkdir(parents=True, exist_ok=True)
+
+_HEADERS_ATV = ['Funcionário', 'Cargo', 'Setor', 'Atividade', 'Detalhamento', 'Periodicidade', 'Tempo', 'Status']
+
+def _exportar_xlsx(dados_empresa, nome_empresa):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Atividades'
+    ws.append(_HEADERS_ATV)
+    for a in dados_empresa['atividades']:
+        ws.append([
+            a.get('funcionario', ''),
+            a.get('cargo', ''),
+            a.get('setor', ''),
+            a.get('nome', ''),
+            a.get('detalhamento', ''),
+            a.get('periodicidade', ''),
+            a.get('tempo', ''),
+            a.get('status', ''),
+        ])
+    # Auto-ajuste de largura das colunas
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or '')) for cell in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+    destino = _PASTA_ATV / f'Atividades_{nome_empresa}_{DATA_ARQUIVO}.xlsx'
+    try:
+        wb.save(str(destino))
+        print(f'  Exportado: {destino.name}')
+    except PermissionError:
+        print(f'  [aviso] {destino.name} esta aberto — feche o Excel e rode novamente para atualizar.')
+
+print('\n--- ATIVIDADES XLSX ---')
+_exportar_xlsx(se,  'Millena')
+
+# Mantém apenas o arquivo mais recente por empresa
+for _prefixo in ['Atividades_Millena_']:
+    _arqs = sorted(_PASTA_ATV.glob(f'{_prefixo}*.xlsx'), key=lambda f: f.stat().st_mtime, reverse=True)
+    for _old in _arqs[1:]:
+        _old.unlink()
+        print(f'  Removido obsoleto: {_old.name}')

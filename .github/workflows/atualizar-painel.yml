@@ -1,0 +1,70 @@
+# Busca as atividades na API do mapeia, gera o painel e publica no GitHub Pages.
+# Roda a cada 10 min das 07h as 21h (Brasilia) e pelo botao "Run workflow".
+name: Atualizar painel
+
+on:
+  schedule:
+    - cron: "*/10 10-23 * * *"   # UTC = 07:00-20:59 em Brasilia
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: painel
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    # Liga/desliga o agendamento: variavel do repositorio PAINEL_ATIVO = true.
+    # O botao "Run workflow" funciona sempre.
+    if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      TZ: America/Sao_Paulo
+      BROWSER: "true"          # o gerador tenta abrir o navegador; aqui nao faz nada
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install openpyxl
+
+      # "Novas atividades HOJE" compara com a execucao anterior
+      - uses: actions/cache/restore@v4
+        with:
+          path: trabalho/ResumoGerencialMapeamentoMillena/estado_anterior.json
+          key: estado-${{ github.run_id }}
+          restore-keys: estado-
+
+      - name: Buscar atividades na API
+        env:
+          MAPEIA_API_KEY: ${{ secrets.MAPEIA_API_KEY }}
+        run: python painel/buscar_api.py trabalho
+
+      - name: Gerar painel
+        run: python trabalho/ResumoGerencialMapeamentoMillena/gerar_dashboard.py
+
+      - run: |
+          mkdir -p _site
+          cp trabalho/ResumoGerencialMapeamentoMillena/Dashboard_Millena_ATUAL.html _site/index.html
+
+      - uses: actions/cache/save@v4
+        with:
+          path: trabalho/ResumoGerencialMapeamentoMillena/estado_anterior.json
+          key: estado-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
