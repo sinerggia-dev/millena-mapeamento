@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: "*/10 10-23 * * *"   # UTC = 07:00-20:59 em Brasilia
   workflow_dispatch:
+  push:                    # publica na hora quando o painel ou a lista de usuarios mudam
+    branches: [main]
+    paths:
+      - painel/**
+      - .github/workflows/atualizar-painel.yml
 
 permissions:
   contents: read
@@ -20,7 +25,7 @@ jobs:
   atualizar:
     # Liga/desliga o agendamento: existir a variavel PAINEL_ATIVO (qualquer valor) liga; apagar desliga.
     # O botao "Run workflow" funciona sempre.
-    if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO != ''
+    if: github.event_name != 'schedule' || vars.PAINEL_ATIVO != ''
     runs-on: ubuntu-24.04   # fixo: o ubuntu-latest esta migrando de versao
     environment:
       name: github-pages

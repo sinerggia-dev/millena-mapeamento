@@ -820,6 +820,24 @@ HTML = """<!DOCTYPE html>
   .setor-track{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden}
   .setor-fill{height:100%;border-radius:99px}
   .setor-vazio{color:var(--muted);font-size:13px}
+  .btn-ver{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:6px;
+    padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .btn-ver:hover{background:rgba(124,58,237,.3);color:#fff}
+  #modal-atividades{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+  .va-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:820px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .va-cab{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);border-radius:14px 14px 0 0}
+  .va-titulo{font-size:18px;font-weight:700;color:var(--white)}
+  .va-subt{font-size:12px;color:var(--muted);margin-top:3px}
+  .va-fechar{background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:14px;flex-shrink:0}
+  .va-fechar:hover{background:rgba(255,255,255,.08)}
+  .va-corpo{padding:14px 22px 22px;display:flex;flex-direction:column;gap:10px}
+  .va-item{border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:rgba(255,255,255,.02)}
+  .va-topo{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;color:var(--white);font-size:14px}
+  .va-meta{font-size:11px;color:var(--muted);margin:4px 0 6px}
+  .va-det{font-size:13px;color:var(--text);white-space:pre-line;line-height:1.45}
+  .va-campo{font-size:12px;color:var(--text);margin-top:6px}
+  .va-campo span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:1px}
+  .va-vazio{color:var(--muted);font-size:13px;padding:10px 0}
   .setor-titulo{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
   .setor-row{cursor:pointer;border-radius:8px;padding:6px 8px;margin:-6px -8px;transition:background .15s,opacity .15s}
   .setor-row:hover{background:rgba(255,255,255,.05)}
@@ -1034,7 +1052,7 @@ HTML = """<!DOCTYPE html>
         <button onclick="exportarVisaoGeral()" style="font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid rgba(16,185,129,.3);cursor:pointer;background:rgba(16,185,129,.12);color:#34d399;font-weight:600;white-space:nowrap">⬇ Exportar Excel</button>
       </div>
     </div>
-    <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Filial</th><th>Atividades</th></tr></thead>
+    <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor</th><th>Filial</th><th>Atividades</th><th></th></tr></thead>
     <tbody id="tb-enviaram"></tbody></table>
   </div>
 </div>
@@ -1653,7 +1671,7 @@ document.addEventListener('keydown',e=>{
   const r=e.target.closest&&e.target.closest('.setor-row');
   if(r&&(e.key==='Enter'||e.key===' ')){e.preventDefault(); filtrarSetor(r.dataset.setor);}
 });
-function setor(s){return s==='Técnico'?'<span class="setor-tag setor-tec">Técnico</span>':'<span class="setor-tag setor-corp">Corporativo</span>';}
+function setor(s){return s?`<span class="setor-tag setor-corp">${esc(s)}</span>`:'<span style="color:var(--muted)">—</span>';}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 window._chartBars=[];
 function _initChartClick(){
@@ -2105,10 +2123,34 @@ function startDonutLoop(){
   setInterval(atualizarDonuts,10000);
 }
 function setHtml(id, rows){document.getElementById(id).innerHTML=rows.join('');}
+function verAtividades(nome){
+  const n=_normJS(nome);
+  const lista=(EMP('sergipe').atividades||[]).filter(a=>_normJS(a.funcionario)===n);
+  const pessoa=[...(EMP('sergipe').enviaram_list||[]),...(EMP('sergipe').nao_enviaram_list||[])].find(p=>_normJS(p.nome)===n)||{};
+  const min=lista.reduce((t,a)=>{const m=String(a.tempo||'').match(/^(\d+):(\d+)/);return t+(m?(+m[1])*60+(+m[2]):0);},0);
+  const fmtT=m=>`${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`;
+  document.getElementById('va-nome').textContent=nome;
+  document.getElementById('va-sub').textContent=[pessoa.cargo,pessoa.setor,`${lista.length} atividade${lista.length===1?'':'s'}`,min?`${fmtT(min)} mapeadas`:''].filter(Boolean).join(' · ');
+  const campo=(r,v)=>v&&String(v).trim()?`<div class="va-campo"><span>${r}</span>${esc(v)}</div>`:'';
+  document.getElementById('va-lista').innerHTML=lista.length?lista.map((a,i)=>{const h=_extrairHorario(a.criada_em);return `<div class="va-item">
+      <div class="va-topo"><strong>${i+1}. ${esc(a.nome)}</strong>${status_badge(a.status||'')}</div>
+      <div class="va-meta">${[a.periodicidade,a.como_realiza,a.tempo?('⏱ '+a.tempo):'',h?('enviada '+h.texto):''].filter(Boolean).map(esc).join(' · ')}</div>
+      ${a.detalhamento?`<div class="va-det">${esc(a.detalhamento)}</div>`:''}
+      ${campo('Pontos críticos',a.pontos_criticos)}${campo('Sugestões de melhoria',a.sugestoes)}
+    </div>`;}).join(''):'<div class="va-vazio">Nenhuma atividade no filtro atual.</div>';
+  const m=document.getElementById('modal-atividades'); m.style.display='flex'; document.body.style.overflow='hidden';
+  m.querySelector('.va-fechar').focus();
+}
+function fecharAtividades(){document.getElementById('modal-atividades').style.display='none';document.body.style.overflow='';}
+document.addEventListener('click',e=>{
+  const b=e.target.closest&&e.target.closest('.btn-ver'); if(b){verAtividades(b.dataset.func);return;}
+  if(e.target.id==='modal-atividades') fecharAtividades();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape') fecharAtividades();});
 function _vgRow(p){
   return p.pendente
-    ? `<tr style="background:rgba(245,158,11,.07)"><td><span style="color:#f59e0b;font-weight:700">⚠ ${p.nome}</span></td><td style="font-size:12px;color:#f59e0b">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span style="font-size:11px;color:#f59e0b;font-weight:600">Pendente</span></td></tr>`
-    : `<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span class="count-pill">${p.atividades}</span></td></tr>`;
+    ? `<tr style="background:rgba(245,158,11,.07)"><td><span style="color:#f59e0b;font-weight:700">⚠ ${p.nome}</span></td><td style="font-size:12px;color:#f59e0b">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span style="font-size:11px;color:#f59e0b;font-weight:600">Pendente</span></td><td></td></tr>`
+    : `<tr><td><strong>${p.nome}</strong></td><td style="font-size:12px;color:var(--subtle)">${p.cargo}</td><td>${setor(p.setor)}</td><td><span style="font-size:11px;font-weight:600;color:${p.cor}">${p.filial}</span></td><td><span class="count-pill">${p.atividades}</span></td><td style="text-align:right"><button type="button" class="btn-ver" data-func="${esc(p.nome)}">Ver atividades</button></td></tr>`;
 }
 window._vgFiltro='todos';
 window._vgEmpresa='todas';
@@ -2238,6 +2280,13 @@ document.addEventListener('DOMContentLoaded',()=>{
   setTimeout(()=>location.reload(), 2 * 60 * 1000);
 });
 </script>
+<div id="modal-atividades" role="dialog" aria-modal="true" aria-labelledby="va-nome" style="display:none">
+  <div class="va-caixa">
+    <div class="va-cab"><div><div id="va-nome" class="va-titulo"></div><div id="va-sub" class="va-subt"></div></div>
+      <button type="button" class="va-fechar" onclick="fecharAtividades()" aria-label="Fechar">✕</button></div>
+    <div id="va-lista" class="va-corpo"></div>
+  </div>
+</div>
 </body>
 </html>"""
 
