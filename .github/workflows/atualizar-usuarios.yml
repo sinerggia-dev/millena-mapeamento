@@ -18,7 +18,7 @@ concurrency:
 jobs:
   usuarios:
     if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # fixo: o ubuntu-latest esta migrando de versao
     env:
       TZ: America/Sao_Paulo
       PYTHONIOENCODING: utf-8
@@ -29,9 +29,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: |
+      - name: Instalar navegador
+        run: |
           pip install openpyxl playwright
-          python -m playwright install --with-deps chromium
+          for t in 1 2 3; do
+            python -m playwright install --with-deps chromium && exit 0
+            echo "instalacao falhou (tentativa $t), tentando de novo..."; sleep 20
+          done
+          exit 1
 
       - name: Baixar usuarios do mapeia
         env:

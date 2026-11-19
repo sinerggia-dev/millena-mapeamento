@@ -21,7 +21,7 @@ jobs:
     # Liga/desliga o agendamento: variavel do repositorio PAINEL_ATIVO = true.
     # O botao "Run workflow" funciona sempre.
     if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # fixo: o ubuntu-latest esta migrando de versao
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
