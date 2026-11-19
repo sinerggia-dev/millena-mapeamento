@@ -622,10 +622,11 @@ if not mesma_data or delta_total == 0:
     _icone_atv = '<svg style="position:absolute;right:12px;top:40%;transform:translateY(-50%);opacity:.18;width:44px;height:44px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>'
     _hoje_badge = '<div style="position:absolute;right:10px;bottom:8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:.06em">HOJE</div>'
     novos_card = (
-        '<div class="card" id="card-novas" data-total="0" data-al="0" data-se="0" data-rec="0">'
+        '<div class="card" id="card-novas" role="button" tabindex="0" title="Ver as atividades enviadas hoje" data-total="0" data-al="0" data-se="0" data-rec="0">'
         + _icone_atv + _hoje_badge +
         '<div class="card-label">Novas Atividades</div>'
         '<div class="card-value" id="val-novas" style="color:#f59e0b;font-size:20px">0</div>'
+        '<div class="card-detail" id="det-novas-se">nenhuma hoje</div>'
         '</div>'
     )
 else:
@@ -635,7 +636,7 @@ else:
     _icone_atv = '<svg style="position:absolute;right:12px;top:40%;transform:translateY(-50%);opacity:.18;width:44px;height:44px" viewBox="0 0 24 24" fill="var(--white)" xmlns="http://www.w3.org/2000/svg"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>'
     _hoje_badge = '<div style="position:absolute;right:10px;bottom:8px;font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:.06em">HOJE</div>'
     novos_card = (
-        f'<div class="card pink" id="card-novas" data-total="+{delta_total}" data-al="{s_al}" data-se="{s_se}" data-rec="{s_rec}">'
+        f'<div class="card pink" id="card-novas" role="button" tabindex="0" title="Ver as atividades enviadas hoje" data-total="+{delta_total}" data-al="{s_al}" data-se="{s_se}" data-rec="{s_rec}">'
         + _icone_atv + _hoje_badge +
         '<div class="card-label">🔔 Novas Atividades</div>'
         f'<div class="card-value" id="val-novas" style="color:#f59e0b;font-size:20px">+{delta_total}</div>'
@@ -962,6 +963,10 @@ HTML = """<!DOCTYPE html>
   .sd-relogio{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
   #sd-data{font-size:12px;color:var(--muted);white-space:nowrap}
   #sd-hora{font-size:22px;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+  #card-novas{cursor:pointer}
+  #card-novas:hover{border-color:#f59e0b}
+  #card-novas.novas-ativo{border-color:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.45)}
+  #card-novas:focus-visible{outline:2px solid #f59e0b;outline-offset:2px}
   /* ── Filtros escondidos ── */
   .filtros-area{display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-left:auto}
   .filtros-btn{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);
@@ -1749,7 +1754,32 @@ function _carregarFiltroLocal(){
   try{ return JSON.parse(localStorage.getItem('novatec_filtro_data')||'null'); }catch(e){ return null; }
 }
 const _TURNO_LABEL={manha:'Manhã (00h–12h)', tarde:'Tarde (12h–18h)', noite:'Noite (18h–24h)'};
+function _hojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _filtroEhHoje(){ const h=_hojeISO(); return document.getElementById('filtro-data-de').value===h && document.getElementById('filtro-data-ate').value===h; }
+function _atualizarNovas(){
+  const card=document.getElementById('card-novas'); if(!card) return;
+  const h=_hojeISO(), st=window._setorFiltro;
+  const reg=_registroEmpresa(DATA.sergipe);
+  const n=(DATA.sergipe.atividades||[]).filter(a=>_parseDataISO(a.criada_em)===h
+     && (!st || (reg.get(_normJS(a.funcionario))&&_setorDe(reg.get(_normJS(a.funcionario)))===st))).length;
+  const txt=n?('+'+n):'0';
+  card.dataset.total=txt; card.dataset.se=txt;
+  const v=document.getElementById('val-novas'); if(v) v.textContent=txt;
+  const d=document.getElementById('det-novas-se'); if(d) d.textContent=n?('Millena: '+txt):'nenhuma hoje';
+  card.classList.toggle('pink',n>0);
+  card.classList.toggle('novas-ativo',_filtroEhHoje());
+  card.setAttribute('aria-pressed',_filtroEhHoje());
+}
+function filtrarNovasHoje(){
+  const de=document.getElementById('filtro-data-de'), ate=document.getElementById('filtro-data-ate');
+  if(_filtroEhHoje()){ de.value=''; ate.value=''; } else { de.value=_hojeISO(); ate.value=_hojeISO(); }
+  aplicarFiltroData();
+  if(_filtroEhHoje()){ const t=document.getElementById('tb-enviaram'); if(t) t.closest('.table-wrap').scrollIntoView({behavior:'smooth',block:'start'}); }
+}
+document.addEventListener('click',e=>{ if(e.target.closest&&e.target.closest('#card-novas')) filtrarNovasHoje(); });
+document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ')&&e.target.id==='card-novas'){ e.preventDefault(); filtrarNovasHoje(); } });
 function _atualizarInfoFiltro(){
+  _atualizarNovas();
   const de=document.getElementById('filtro-data-de').value;
   const ate=document.getElementById('filtro-data-ate').value;
   const turno=document.getElementById('filtro-turno').value;
