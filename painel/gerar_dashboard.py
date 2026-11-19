@@ -820,6 +820,39 @@ HTML = """<!DOCTYPE html>
   .setor-track{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden}
   .setor-fill{height:100%;border-radius:99px}
   .setor-vazio{color:var(--muted);font-size:13px}
+  /* ── Paletas (botao de paleta no cabecalho) ── */
+  html[data-tema="marinho"]{--bg:#0a1324;--surface:#0f1d36;--surface2:#16284a;--border:#24385e;--text:#dbe5f5;--muted:#8fa3c4;--subtle:#c3d0e6;--white:#f5f8ff}
+  html[data-tema="grafite"]{--bg:#121212;--surface:#1b1b1d;--surface2:#242427;--border:#34343a;--text:#e4e4e7;--muted:#a1a1aa;--subtle:#d4d4d8;--white:#fafafa}
+  html[data-tema="millena"]{--bg:#0a1836;--surface:#0f2350;--surface2:#163066;--border:#26437e;--text:#e3eaf8;--muted:#9fb1d6;--subtle:#cdd8ee;--white:#ffffff;--al:#f5c400;--se:#f5c400;--se-glow:rgba(245,196,0,.16)}
+  html[data-tema="claro"]{--bg:#f3f5f9;--surface:#ffffff;--surface2:#eef2f7;--border:#d9e0ea;--text:#1f2937;--muted:#64748b;--subtle:#334155;--white:#0f172a}
+  html[data-tema="claro-millena"]{--bg:#fff8dc;--surface:#ffffff;--surface2:#fff1b8;--border:#efd98a;--text:#1f2a44;--muted:#5b6b8c;--subtle:#24345c;--white:#0b2a6b;--al:#1d4fb8;--se:#1d4fb8;--se-glow:rgba(29,79,184,.12)}
+  html[data-tema^="claro"] #filtro-data-de,html[data-tema^="claro"] #filtro-data-ate,
+  html[data-tema^="claro"] #filtro-turno,html[data-tema^="claro"] #vg-search{background:var(--surface2)!important;border-color:var(--border)!important;color:var(--text)!important;color-scheme:light!important}
+  html[data-tema^="claro"] [style*="rgba(255,255,255,.06)"]{background:var(--surface2)!important}
+  html[data-tema^="claro"] [style*="rgba(255,255,255,.08)"],html[data-tema^="claro"] [style*="rgba(255,255,255,.14)"]{border-color:var(--border)!important}
+  html[data-tema^="claro"] .card,html[data-tema^="claro"] .table-wrap,html[data-tema^="claro"] .empresa-block{box-shadow:0 1px 3px rgba(15,23,42,.06)}
+  html[data-tema^="claro"] .btn-ver{color:#5b21b6}
+  html[data-tema^="claro"] .alert-red{color:#b91c1c;background:rgba(239,68,68,.07)}
+  html[data-tema^="claro"] .badge-se{color:var(--se);border-color:var(--se)}
+  html[data-tema^="claro"] #filtro-turno option{background:#fff;color:#1f2937}
+  html[data-tema^="claro"] #modal-atividades{background:rgba(15,23,42,.45)}
+  body,header,.nav,.card,.table-wrap,.empresa-block,th,td{transition:background-color .25s,border-color .25s,color .25s}
+  .tema-wrap{position:relative;display:flex;align-items:center;gap:10px}
+  .tema-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;height:34px;padding:0 12px;
+    display:flex;align-items:center;gap:6px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600}
+  .tema-btn:hover{border-color:var(--muted)}
+  .tema-pop{position:absolute;right:0;top:42px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;
+    width:250px;box-shadow:0 12px 40px rgba(0,0,0,.35);z-index:200;display:none}
+  .tema-pop.aberto{display:block}
+  .tema-pop h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 8px;font-weight:600}
+  .tema-op{display:flex;align-items:center;gap:10px;width:100%;background:none;border:1px solid transparent;border-radius:8px;padding:7px 8px;
+    cursor:pointer;color:var(--text);font-family:inherit;font-size:13px;text-align:left}
+  .tema-op:hover{background:var(--surface2)}
+  .tema-op.ativo{border-color:var(--al);background:var(--surface2)}
+  .tema-amostra{display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border);flex-shrink:0}
+  .tema-amostra i{display:block;width:12px;height:22px}
+  @media(max-width:600px){.tema-btn span{display:none}}
+
   .btn-ver{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:6px;
     padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit}
   .btn-ver:hover{background:rgba(124,58,237,.3);color:#fff}
@@ -851,6 +884,7 @@ HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
+<script>try{var _t=localStorage.getItem('painel_tema');if(_t)document.documentElement.setAttribute('data-tema',_t);}catch(e){}</script>
 <header>
   <div class="logo">
     <img class="logo-millena" src="LOGO_SRC_PLACEHOLDER" alt="Millena móveis e eletro">
@@ -859,7 +893,14 @@ HTML = """<!DOCTYPE html>
       <div class="logo-sub">Gerado em DATE_HOJE</div>
     </div>
   </div>
-  <div class="header-date">DATE_HOJE · DATE_HORA</div>
+  <div class="tema-wrap">
+    <div class="header-date">DATE_HOJE · DATE_HORA</div>
+    <button type="button" class="tema-btn" id="tema-btn" aria-haspopup="true" aria-expanded="false" title="Trocar cores">🎨 <span>Tema</span></button>
+    <div class="tema-pop" id="tema-pop" role="menu">
+      <h4>Paleta de cores</h4>
+      <div id="tema-lista"></div>
+    </div>
+  </div>
 </header>
 
 <nav class="nav">
@@ -902,7 +943,7 @@ HTML = """<!DOCTYPE html>
         <input type="date" id="filtro-data-ate" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:'DM Mono',monospace;color-scheme:dark">
         <button onclick="limparFiltroData()" title="Limpar filtro de data" style="font-size:11px;padding:4px 9px;border-radius:6px;border:none;cursor:pointer;background:rgba(255,255,255,.08);color:var(--subtle);font-weight:600">Limpar</button>
       </div>
-      <div style="display:flex;align-items:center;gap:6px;background:#12151d;border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+      <div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px">
         <span style="font-size:11px;color:var(--muted);white-space:nowrap">🕐 Turno</span>
         <select id="filtro-turno" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:Inter,sans-serif">
           <option value="todos">Todos</option>
@@ -947,7 +988,7 @@ HTML = """<!DOCTYPE html>
     <div class="card orange" id="card-prazo">
       <div class="card-label">Temporazador</div>
       <div id="prazo-countdown" style="display:flex;gap:3px;align-items:flex-end;margin:2px 0 6px">
-        <div style="text-align:center"><span id="p-dias" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:#ffffff;margin-top:1px;letter-spacing:.04em">DIAS</div></div>
+        <div style="text-align:center"><span id="p-dias" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--white);margin-top:1px;letter-spacing:.04em">DIAS</div></div>
         <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
         <div style="text-align:center"><span id="p-horas" style="font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace">--</span><div style="font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:.04em">HRS</div></div>
         <span style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:10px">:</span>
@@ -1720,11 +1761,11 @@ function drawBarChart(labels, values, color){
   const filtroDe=(document.getElementById('filtro-data-de')||{}).value||'';
   const filtroAte=(document.getElementById('filtro-data-ate')||{}).value||'';
   // linhas de grade horizontais
-  ctx.strokeStyle='#2a3441'; ctx.lineWidth=1;
+  ctx.strokeStyle=_corTema('--border'); ctx.lineWidth=1;
   for(let i=0;i<=4;i++){
     const y=pad.top+cH*(1-i/4);
     ctx.beginPath(); ctx.moveTo(pad.left,y); ctx.lineTo(W-pad.right,y); ctx.stroke();
-    ctx.fillStyle='#64748b'; ctx.font='12px Inter,sans-serif'; ctx.textAlign='right';
+    ctx.fillStyle=_corTema('--muted'); ctx.font='12px Inter,sans-serif'; ctx.textAlign='right';
     ctx.fillText(Math.round(maxV/4*i), pad.left-6, y+4);
   }
   // barras + labels
@@ -2094,6 +2135,36 @@ function filterTable(tbodyId,q){
     r.style.display=r.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';
   });
 }
+function _corTema(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()||'#888';}
+const _TEMAS=[
+  {id:'',nome:'Escuro',cores:['#0d1117','#161b22','#7c3aed']},
+  {id:'marinho',nome:'Azul-marinho',cores:['#0a1324','#0f1d36','#2563eb']},
+  {id:'grafite',nome:'Grafite',cores:['#121212','#242427','#a1a1aa']},
+  {id:'millena',nome:'Millena',cores:['#0a1836','#163066','#f5c400']},
+  {id:'claro',nome:'Claro',cores:['#f3f5f9','#ffffff','#2563eb']},
+  {id:'claro-millena',nome:'Claro Millena',cores:['#fff8dc','#ffffff','#1d4fb8']},
+];
+function _temaAtual(){return document.documentElement.getAttribute('data-tema')||'';}
+function aplicarTema(id){
+  if(id) document.documentElement.setAttribute('data-tema',id); else document.documentElement.removeAttribute('data-tema');
+  try{ id?localStorage.setItem('painel_tema',id):localStorage.removeItem('painel_tema'); }catch(e){}
+  _montarTemas();
+  try{ atualizarDonuts(); filterEmpresa(_empresaAtiva()); }catch(e){}
+}
+function _montarTemas(){
+  const box=document.getElementById('tema-lista'); if(!box) return;
+  const at=_temaAtual();
+  box.innerHTML=_TEMAS.map(t=>`<button type="button" role="menuitemradio" aria-checked="${t.id===at}" class="tema-op${t.id===at?' ativo':''}" data-tema-id="${t.id}">
+    <span class="tema-amostra">${t.cores.map(c=>`<i style="background:${c}"></i>`).join('')}</span>${t.nome}</button>`).join('');
+}
+document.addEventListener('click',e=>{
+  const pop=document.getElementById('tema-pop'), btn=document.getElementById('tema-btn'); if(!pop) return;
+  const op=e.target.closest&&e.target.closest('.tema-op');
+  if(op){aplicarTema(op.dataset.temaId); return;}
+  if(e.target.closest&&e.target.closest('#tema-btn')){const ab=!pop.classList.contains('aberto'); pop.classList.toggle('aberto',ab); btn.setAttribute('aria-expanded',ab); if(ab)_montarTemas(); return;}
+  if(!(e.target.closest&&e.target.closest('#tema-pop'))){pop.classList.remove('aberto'); btn.setAttribute('aria-expanded','false');}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){const pop=document.getElementById('tema-pop'); if(pop) pop.classList.remove('aberto');}});
 function drawDonut(id,sent,total,colorSent){
   const c=document.getElementById(id);if(!c)return;
   const ctx=c.getContext('2d'),cx=c.width/2,cy=c.height/2,r=46,TAU=Math.PI*2,pct=sent/Math.max(total,1);
@@ -2102,9 +2173,9 @@ function drawDonut(id,sent,total,colorSent){
   function frame(now){
     const t=Math.min((now-start)/duration,1),current=ease(t)*pct;
     ctx.clearRect(0,0,c.width,c.height);
-    ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.lineWidth=13;ctx.strokeStyle='#1c2330';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.lineWidth=13;ctx.strokeStyle=_corTema('--surface2');ctx.stroke();
     if(current>0){ctx.beginPath();ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+TAU*current);ctx.lineWidth=13;ctx.strokeStyle=colorSent;ctx.lineCap='round';ctx.stroke();}
-    ctx.fillStyle='#f8fafc';ctx.font='bold 22px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=_corTema('--white');ctx.font='bold 22px Inter,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(Math.round(current*100)+'%',cx,cy);
     if(t<1)requestAnimationFrame(frame);
   }
@@ -2172,7 +2243,7 @@ function filtrarEnviaram(tipo){
   else if(tipo==='enviaram') label=rows.length+' de '+total+' enviaram';
   else label=rows.length+' de '+total+' pendentes';
   document.getElementById('count-tb-enviaram').textContent=label;
-  const cores={todos:'var(--accent)',enviaram:'#10b981',pendentes:'#f59e0b'};
+  const cores={todos:'var(--se)',enviaram:'#10b981',pendentes:'#f59e0b'};
   ['todos','enviaram','pendentes'].forEach(t=>{
     const b=document.getElementById('fg-btn-'+t);
     const ativo=t===tipo;
