@@ -61,6 +61,7 @@ jobs:
       - run: |
           mkdir -p _site
           cp trabalho/ResumoGerencialMapeamentoMillena/Dashboard_Millena_ATUAL.html _site/index.html
+          cp painel/pwa/* _site/   # icones e manifesto para instalar no celular
 
       - uses: actions/cache/save@v4
         with:

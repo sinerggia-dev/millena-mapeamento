@@ -694,7 +694,16 @@ HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#161b22">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Painel Millena">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icone-192.png">
 <title>Millena — Relatório de Atividades · DATE_HOJE</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -852,6 +861,57 @@ HTML = """<!DOCTYPE html>
   .tema-amostra{display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border);flex-shrink:0}
   .tema-amostra i{display:block;width:12px;height:22px}
   @media(max-width:600px){.tema-btn span{display:none}}
+  /* ── Celular e tablet (Android e iOS) ── */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+  body{overflow-x:hidden}
+  button,.nav-btn,.setor-row,.tema-op{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  @media(hover:none){.card:hover{transform:none;box-shadow:none}tr:hover td{background:transparent}}
+  @media(max-width:900px){
+    header{padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+    .nav{padding:0 8px;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;scrollbar-width:none;-webkit-overflow-scrolling:touch;position:sticky;top:0;z-index:90}
+    .nav::-webkit-scrollbar{display:none}
+    .nav-btn{flex:0 0 auto;white-space:nowrap;padding:12px 14px;font-size:14px}
+    header{position:relative}
+    main{padding:18px 14px calc(28px + env(safe-area-inset-bottom));padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+    .cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}
+    .cards > #card-prazo{grid-column:1/-1}
+    .card{padding:10px 12px}
+    .card svg{width:34px!important;height:34px!important}
+    .card-value{font-size:22px}
+    [style*="grid-template-columns:repeat(3"],[style*="grid-template-columns:repeat(4"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+    [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:minmax(0,1fr)!important}
+    .table-header{flex-wrap:wrap;gap:8px}
+    .table-header input,.search-input,#vg-search{max-width:none!important;width:100%;flex:1 1 100%}
+    table{min-width:620px}
+    th,td{padding:9px 10px}
+    .donut-wrap{padding:18px 16px;gap:16px}
+    .se-setores{padding:16px}
+    .setor-lista{grid-template-columns:1fr}
+    /* iOS amplia a tela quando o campo tem fonte menor que 16px */
+    input,select,textarea{font-size:16px!important}
+    .btn-ver{padding:8px 12px;font-size:12px}
+    .filtros-linha{width:100%}
+    .filtros-linha > div{width:100%}
+    .filtro-periodo{flex-wrap:wrap}
+    .filtro-periodo input{flex:1 1 130px;min-width:0}
+    #filtro-turno{flex:1}
+    #modal-atividades{padding:0;align-items:stretch}
+    .va-caixa{max-width:none;border-radius:0;min-height:100vh;min-height:100dvh;border:0}
+    .va-cab{border-radius:0;padding:12px 14px;padding-top:max(12px,env(safe-area-inset-top));flex-wrap:wrap}
+    .va-corpo{padding:12px 14px calc(20px + env(safe-area-inset-bottom))}
+    .va-titulo{font-size:16px}
+    .tema-pop{position:fixed;right:12px;left:auto;top:calc(56px + env(safe-area-inset-top));width:min(260px,calc(100vw - 24px))}
+  }
+  @media(max-width:520px){
+    .logo-millena{height:34px}
+    .logo-text{font-size:14px!important}
+    .logo-sub{font-size:11px}
+    .card-label{font-size:10px}
+    .card-value{font-size:20px}
+    .va-acoes{width:100%;justify-content:space-between}
+  }
+
 
   .btn-ver{background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:6px;
     padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit}
@@ -885,6 +945,33 @@ HTML = """<!DOCTYPE html>
     border-radius:99px;padding:3px 10px;font-size:12px;font-family:inherit;text-transform:none;letter-spacing:0;cursor:pointer}
   @media(max-width:1100px){.setor-lista{grid-template-columns:1fr}}
   @media(max-width:800px){.se-corpo{grid-template-columns:1fr}.se-setores{border-left:0;border-top:1px solid var(--border)}}
+  /* ── Celular: ajustes finais (precisam vir por ultimo) ── */
+  @media(max-width:900px){
+    header{flex-wrap:nowrap!important;gap:10px}
+    header .logo{min-width:0;flex:1}
+    header .logo > div{min-width:0}
+    .tema-wrap{flex-shrink:0}
+    #modal-atividades{padding:0!important;align-items:stretch!important}
+    .va-caixa{max-width:none!important;border-radius:0!important;min-height:100vh;min-height:100dvh;border:0!important}
+    .va-cab{border-radius:0!important}
+  }
+  .va-topo .status-badge{white-space:nowrap;flex-shrink:0}
+  @media(max-width:640px){
+    /* tabelas viram cartoes: cada linha vira um bloco com o nome do campo ao lado */
+    .table-wrap table{min-width:0!important;width:100%}
+    .table-wrap thead{display:none}
+    .table-wrap tbody,.table-wrap tr{display:block;width:100%}
+    .table-wrap tr{border-bottom:1px solid var(--border);padding:8px 12px}
+    .table-wrap td{display:flex;justify-content:space-between;align-items:center;gap:12px;border:0!important;padding:4px 0!important;text-align:right!important;white-space:normal!important;max-width:none!important}
+    .table-wrap td::before{content:attr(data-rotulo);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;flex-shrink:0}
+    .table-wrap td[data-rotulo=""]::before,.table-wrap td:not([data-rotulo])::before{display:none}
+    .table-wrap td:first-child{font-size:15px;justify-content:flex-start;text-align:left!important;padding-top:2px!important}
+    .table-wrap td:first-child::before{display:none}
+    .table-wrap td:empty{display:none}
+    .table-wrap td .btn-ver{width:100%;padding:10px;font-size:13px}
+    .table-wrap td:has(.btn-ver)::before{display:none}
+    tr:hover td{background:transparent!important}
+  }
 </style>
 </head>
 <body>
@@ -939,8 +1026,8 @@ HTML = """<!DOCTYPE html>
       <button class="toggle-btn al" id="filtro-al" onclick="filterEmpresa('al')">Novatec Alagoas</button>
       <button class="toggle-btn re" id="filtro-rec" onclick="filterEmpresa('rec')">Novatec Recife</button>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px">
+    <div class="filtros-linha" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="filtro-periodo" style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px">
         <span style="font-size:11px;color:var(--muted);white-space:nowrap">📅 Período</span>
         <input type="date" id="filtro-data-de" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:'DM Mono',monospace;color-scheme:dark">
         <span style="font-size:11px;color:var(--muted)">até</span>
@@ -1815,6 +1902,7 @@ function showTab(id,btn){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
+  try{ btn.scrollIntoView({block:'nearest',inline:'center'}); sessionStorage.setItem('painel_aba',id); }catch(e){}
 }
 function filterEmpresa(emp){
   ['todas','al','se','rec'].forEach(e=>{
@@ -2153,6 +2241,7 @@ function aplicarTema(id){
   if(id) document.documentElement.setAttribute('data-tema',id); else document.documentElement.removeAttribute('data-tema');
   try{ id?localStorage.setItem('painel_tema',id):localStorage.removeItem('painel_tema'); }catch(e){}
   _montarTemas();
+  try{ const m=document.querySelector('meta[name="theme-color"]'); if(m) m.setAttribute('content',_corTema('--surface')); }catch(e){}
   try{ atualizarDonuts(); filterEmpresa(_empresaAtiva()); }catch(e){}
 }
 function _montarTemas(){
@@ -2204,6 +2293,15 @@ function _dataHora(raw){
   const [y,m,d]=iso.split('-');
   return d+'/'+m+'/'+y+(h?' às '+h.texto:'');
 }
+function _rotularTabelas(){
+  document.querySelectorAll('.table-wrap table').forEach(t=>{
+    const ths=[...t.querySelectorAll('thead th')].map(th=>th.textContent.trim());
+    if(!ths.length) return;
+    t.querySelectorAll('tbody tr').forEach(tr=>{ [...tr.children].forEach((td,i)=>{ if(!td.hasAttribute('data-rotulo')) td.setAttribute('data-rotulo', ths[i]||''); }); });
+  });
+}
+(function(){ let fila=null; new MutationObserver(()=>{ clearTimeout(fila); fila=setTimeout(_rotularTabelas,50); })
+  .observe(document.documentElement,{childList:true,subtree:true}); })();
 function verAtividades(nome){
   const n=_normJS(nome);
   const lista=(EMP('sergipe').atividades||[]).filter(a=>_normJS(a.funcionario)===n);
@@ -2388,7 +2486,14 @@ document.addEventListener('DOMContentLoaded',()=>{
   _atualizarInfoFiltro();
   calcularPrazo();
   setInterval(calcularPrazo, 1000);
-  setTimeout(()=>location.reload(), 2 * 60 * 1000);
+  try{ const aba=sessionStorage.getItem('painel_aba'); const b=aba&&document.querySelector(`.nav-btn[onclick*="'${aba}'"]`); if(b) showTab(aba,b); }catch(e){}
+  const _recarregar=()=>{
+    const ocupado=document.getElementById('modal-atividades').style.display==='flex'
+      || (document.getElementById('tema-pop')||{classList:{contains:()=>false}}).classList.contains('aberto')
+      || ['INPUT','SELECT','TEXTAREA'].includes((document.activeElement||{}).tagName);
+    if(ocupado) setTimeout(_recarregar, 30*1000); else location.reload();
+  };
+  setTimeout(_recarregar, 2 * 60 * 1000);
 });
 </script>
 <div id="modal-atividades" role="dialog" aria-modal="true" aria-labelledby="va-nome" style="display:none">
