@@ -44,7 +44,8 @@ def _get(params):
         if e.headers.get("Content-Encoding") == "gzip" or corpo[:2] == b"\x1f\x8b":
             corpo = gzip.decompress(corpo)
         msg = corpo[:300].decode("utf-8", "replace")
-        sys.exit(f"ERRO {e.code} da API ({params.get('recurso', 'atividades')}): {msg}")
+        print(f"::error::API respondeu {e.code} ({params.get('recurso', 'atividades')}): {msg}")
+        sys.exit(1)
     return json.loads(corpo.decode("utf-8"))
 
 
@@ -147,7 +148,7 @@ def main():
         print(f"Ignorando atividades de outras empresas: {sorted(outras)}")
     atv = [a for a in atv if a.get("Empresa") in (EMPRESA, "")]
     sem_func = sum(not str(a.get("Funcionário", "")).strip() for a in atv)
-    print(f"API: {len(atv)} atividades de {EMPRESA} ({len({a.get('Funcionário') for a in atv})} funcionarios; "
+    print(f"::notice::API: {len(atv)} atividades de {EMPRESA} ({len({a.get('Funcionário') for a in atv})} funcionarios; "
           f"{sem_func} sem funcionario)")
     linhas = [COLS_REL]
     for i, a in enumerate(atv, 1):

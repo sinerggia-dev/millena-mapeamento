@@ -38,7 +38,7 @@ def selecionar_empresa(page):
 
 def main():
     if not (EMAIL and SENHA):
-        print("Sem MAPEIA_EMAIL/MAPEIA_SENHA: lista de usuarios mantida como esta.")
+        print("::warning::Sem MAPEIA_EMAIL/MAPEIA_SENHA: lista de usuarios mantida como esta.")
         return
     with sync_playwright() as p:
         b = p.chromium.launch()
@@ -63,9 +63,11 @@ def main():
                 # mostra so o aviso da tela (sem e-mail nem senha) para saber o motivo
                 avisos = page.locator('[role="alert"], [data-sonner-toast], .text-destructive, .text-red-500')
                 textos = [t.strip() for t in avisos.all_inner_texts() if t.strip()]
-                print(f"login tentativa {tent + 1}: nao entrou. Aviso na tela: {textos or 'nenhum'}")
+                print(f"::warning::login tentativa {tent + 1}: nao entrou. Aviso na tela: {textos or 'nenhum'}; "
+                      f"url={page.url.split('?')[0]}; email preenchido={bool(EMAIL.strip())}; senha preenchida={bool(SENHA.strip())}")
         if not entrou:
-            sys.exit("ERRO: login no mapeia falhou (confira MAPEIA_EMAIL e MAPEIA_SENHA nos segredos)")
+            print("::error::login no mapeia falhou (confira MAPEIA_EMAIL e MAPEIA_SENHA nos segredos)")
+            sys.exit(1)
         for tent in range(3):
             try:
                 page.goto("https://mapeia.sinerggia.com.br/admin/usuarios")
@@ -77,9 +79,10 @@ def main():
                 dl.value.save_as(str(arq))
                 break
             except Exception as e:
-                print(f"tentativa {tent + 1}: {e}")
+                print(f"::warning::exportar usuarios, tentativa {tent + 1}: {str(e).splitlines()[0][:200]}")
                 if tent == 2:
-                    sys.exit("ERRO: nao foi possivel exportar os usuarios")
+                    print("::error::nao foi possivel exportar os usuarios")
+                    sys.exit(1)
         b.close()
 
     ws = openpyxl.load_workbook(arq).active
@@ -92,11 +95,11 @@ def main():
     usuarios.sort(key=lambda u: u["nome"])
     antigo = json.loads(SAIDA.read_text(encoding="utf-8"))["usuarios"] if SAIDA.exists() else None
     if usuarios == antigo:
-        print(f"Usuarios sem mudanca ({len(usuarios)}).")
+        print(f"::notice::Usuarios sem mudanca ({len(usuarios)}).")
         return
     SAIDA.write_text(json.dumps({"atualizado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
                                  "usuarios": usuarios}, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"Usuarios atualizados: {len(usuarios)}")
+    print(f"::notice::Usuarios atualizados: {len(usuarios)}")
 
 
 if __name__ == "__main__":
