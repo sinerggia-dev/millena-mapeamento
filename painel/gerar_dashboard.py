@@ -1017,7 +1017,9 @@ HTML = """<!DOCTYPE html>
     .tema-wrap{flex:1 1 100%;gap:8px}
     .saudacao{flex:1;min-width:0}
     .sd-texto{display:flex;flex:1}
-    .sd-nome{max-width:none}
+    .sd-nome{max-width:100%}
+    .sd-texto{min-width:0;overflow:hidden}
+    .tema-wrap{min-width:0}
     .sd-sep,#sd-data{display:flex}
     #sd-data{font-size:11px}
   }
@@ -1066,12 +1068,6 @@ HTML = """<!DOCTYPE html>
 
 <!-- VISÃO GERAL -->
 <div id="tab-visao-geral" class="tab-panel active">
-  <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
-      <div class="section-title" style="margin-bottom:0">Visão Geral</div>
-      <div class="section-sub" style="margin-bottom:0">Mapeamento de atividades — <span id="vg-hoje">DATE_HOJE</span></div>
-    </div>
-  </div>
   <div id="filtro-data-info" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:14px;padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px"></div>
   ALERT_CRITICOS_HTML
   <div class="empresa-toggle" style="margin-bottom:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
