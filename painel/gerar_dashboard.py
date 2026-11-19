@@ -863,6 +863,10 @@ HTML = """<!DOCTYPE html>
   .va-subt{font-size:12px;color:var(--muted);margin-top:3px}
   .va-fechar{background:none;border:1px solid var(--border);color:var(--text);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:14px;flex-shrink:0}
   .va-fechar:hover{background:rgba(255,255,255,.08)}
+  .va-acoes{display:flex;gap:8px;align-items:center;flex-shrink:0}
+  .va-exportar{background:#10b981;border:none;color:#fff;border-radius:8px;height:32px;padding:0 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+  .va-exportar:hover{background:#059669}
+  .va-exportar:disabled{opacity:.6;cursor:wait}
   .va-corpo{padding:14px 22px 22px;display:flex;flex-direction:column;gap:10px}
   .va-item{border:1px solid var(--border);border-radius:10px;padding:12px 14px;background:rgba(255,255,255,.02)}
   .va-topo{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;color:var(--white);font-size:14px}
@@ -2194,23 +2198,59 @@ function startDonutLoop(){
   setInterval(atualizarDonuts,10000);
 }
 function setHtml(id, rows){document.getElementById(id).innerHTML=rows.join('');}
+function _dataHora(raw){
+  const iso=_parseDataISO(raw), h=_extrairHorario(raw);
+  if(!iso) return h?h.texto:'';
+  const [y,m,d]=iso.split('-');
+  return d+'/'+m+'/'+y+(h?' às '+h.texto:'');
+}
 function verAtividades(nome){
   const n=_normJS(nome);
   const lista=(EMP('sergipe').atividades||[]).filter(a=>_normJS(a.funcionario)===n);
+  window._vaAtual={nome,lista};
   const pessoa=[...(EMP('sergipe').enviaram_list||[]),...(EMP('sergipe').nao_enviaram_list||[])].find(p=>_normJS(p.nome)===n)||{};
   const min=lista.reduce((t,a)=>{const m=String(a.tempo||'').match(/^(\d+):(\d+)/);return t+(m?(+m[1])*60+(+m[2]):0);},0);
   const fmtT=m=>`${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`;
   document.getElementById('va-nome').textContent=nome;
   document.getElementById('va-sub').textContent=[pessoa.cargo,pessoa.setor,`${lista.length} atividade${lista.length===1?'':'s'}`,min?`${fmtT(min)} mapeadas`:''].filter(Boolean).join(' · ');
   const campo=(r,v)=>v&&String(v).trim()?`<div class="va-campo"><span>${r}</span>${esc(v)}</div>`:'';
-  document.getElementById('va-lista').innerHTML=lista.length?lista.map((a,i)=>{const h=_extrairHorario(a.criada_em);return `<div class="va-item">
+  document.getElementById('va-lista').innerHTML=lista.length?lista.map((a,i)=>{return `<div class="va-item">
       <div class="va-topo"><strong>${i+1}. ${esc(a.nome)}</strong>${status_badge(a.status||'')}</div>
-      <div class="va-meta">${[a.periodicidade,a.como_realiza,a.tempo?('⏱ '+a.tempo):'',h?('enviada '+h.texto):''].filter(Boolean).map(esc).join(' · ')}</div>
+      <div class="va-meta">${[a.periodicidade,a.como_realiza,a.tempo?('⏱ '+a.tempo):'',_dataHora(a.criada_em)?('enviada em '+_dataHora(a.criada_em)):''].filter(Boolean).map(esc).join(' · ')}</div>
       ${a.detalhamento?`<div class="va-det">${esc(a.detalhamento)}</div>`:''}
       ${campo('Pontos críticos',a.pontos_criticos)}${campo('Sugestões de melhoria',a.sugestoes)}
     </div>`;}).join(''):'<div class="va-vazio">Nenhuma atividade no filtro atual.</div>';
   const m=document.getElementById('modal-atividades'); m.style.display='flex'; document.body.style.overflow='hidden';
   m.querySelector('.va-fechar').focus();
+}
+function _carregarXLSX(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok,erro)=>{
+    const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload=()=>ok(window.XLSX); sc.onerror=erro; document.head.appendChild(sc);
+  });
+}
+function exportarAtividadesPessoa(){
+  const at=window._vaAtual; if(!at||!at.lista.length) return;
+  const pessoa=[...(EMP('sergipe').enviaram_list||[]),...(EMP('sergipe').nao_enviaram_list||[])].find(p=>_normJS(p.nome)===_normJS(at.nome))||{};
+  const cab=['Nº','Funcionário','Cargo','Setor','Atividade','Detalhamento','Periodicidade','Como realiza','Tempo','Status','Enviada em','Pontos críticos','Sugestões de melhoria'];
+  const linhas=at.lista.map((a,i)=>[i+1,at.nome,a.cargo||pessoa.cargo||'',a.setor||pessoa.setor||'',a.nome||'',a.detalhamento||'',a.periodicidade||'',a.como_realiza||'',a.tempo||'',a.status||'',_dataHora(a.criada_em),a.pontos_criticos||'',a.sugestoes||'']);
+  const hoje=new Date().toLocaleDateString('pt-BR').split('/').join('');
+  const base='Atividades_'+at.nome.trim().split(' ').join('_')+'_'+hoje;
+  const btn=document.getElementById('va-exportar'); const txt=btn.textContent; btn.textContent='Gerando…'; btn.disabled=true;
+  _carregarXLSX().then(X=>{
+    const ws=X.utils.aoa_to_sheet([cab,...linhas]);
+    ws['!cols']=[6,22,26,18,34,70,14,14,8,16,18,40,40].map(w=>({wch:w}));
+    ws['!autofilter']={ref:'A1:M'+(linhas.length+1)};
+    const wb=X.utils.book_new(); X.utils.book_append_sheet(wb,ws,'Atividades');
+    X.writeFile(wb,base+'.xlsx');
+  }).catch(()=>{
+    const csv=[cab,...linhas].map(r=>r.map(c=>'"'+String(c).split('"').join('""')+'"').join(';')).join(String.fromCharCode(13,10));
+    const blob=new Blob([String.fromCharCode(65279)+csv],{type:'text/csv;charset=utf-8'});
+    const u=URL.createObjectURL(blob), l=document.createElement('a'); l.href=u; l.download=base+'.csv';
+    document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
+  }).finally(()=>{btn.textContent=txt; btn.disabled=false;});
 }
 function fecharAtividades(){document.getElementById('modal-atividades').style.display='none';document.body.style.overflow='';}
 document.addEventListener('click',e=>{
@@ -2354,7 +2394,8 @@ document.addEventListener('DOMContentLoaded',()=>{
 <div id="modal-atividades" role="dialog" aria-modal="true" aria-labelledby="va-nome" style="display:none">
   <div class="va-caixa">
     <div class="va-cab"><div><div id="va-nome" class="va-titulo"></div><div id="va-sub" class="va-subt"></div></div>
-      <button type="button" class="va-fechar" onclick="fecharAtividades()" aria-label="Fechar">✕</button></div>
+      <div class="va-acoes"><button type="button" id="va-exportar" class="va-exportar" onclick="exportarAtividadesPessoa()">⬇ Exportar Excel</button>
+      <button type="button" class="va-fechar" onclick="fecharAtividades()" aria-label="Fechar">✕</button></div></div>
     <div id="va-lista" class="va-corpo"></div>
   </div>
 </div>
