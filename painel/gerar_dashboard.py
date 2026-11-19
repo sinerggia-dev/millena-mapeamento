@@ -2311,6 +2311,8 @@ function filterTable(tbodyId,q){
   });
 }
 
+// dentro do portal (iframe) quem busca a versao nova e o portal; sozinho, recarrega a pagina
+function _recarregarPagina(){ try{ if(window.parent!==window && window.parent.recarregarPainel){ window.parent.recarregarPainel(); return; } }catch(e){} location.reload(); }
 // ── cabecalho: saudacao, relogio e recarregar ──
 const _MESES=['jan.','fev.','mar.','abr.','mai.','jun.','jul.','ago.','set.','out.','nov.','dez.'];
 const _DIAS=['dom.','seg.','ter.','qua.','qui.','sex.','sáb.'];
@@ -2339,7 +2341,7 @@ function _pedirNome(){
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest&&e.target.closest('#sd-nome,#sd-avatar,#sd-recarregar,#filtros-btn'); if(!t) return;
-  if(t.id==='sd-recarregar'){ t.classList.add('girando'); setTimeout(()=>location.reload(),350); return; }
+  if(t.id==='sd-recarregar'){ t.classList.add('girando'); setTimeout(_recarregarPagina,350); return; }
   if(t.id==='filtros-btn'){ const p=document.getElementById('filtros-painel'); const ab=!p.classList.contains('aberto');
     p.classList.toggle('aberto',ab); t.setAttribute('aria-expanded',ab); t.classList.toggle('ativo',ab); return; }
   _pedirNome();
@@ -2609,7 +2611,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     const ocupado=document.getElementById('modal-atividades').style.display==='flex'
       || (document.getElementById('tema-pop')||{classList:{contains:()=>false}}).classList.contains('aberto')
       || ['INPUT','SELECT','TEXTAREA'].includes((document.activeElement||{}).tagName);
-    if(ocupado) setTimeout(_recarregar, 30*1000); else location.reload();
+    if(ocupado) setTimeout(_recarregar, 30*1000); else _recarregarPagina();
   };
   setTimeout(_recarregar, 2 * 60 * 1000);
 });

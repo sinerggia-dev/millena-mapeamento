@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - painel/**
+      - portal/**
       - .github/workflows/atualizar-painel.yml
 
 permissions:
@@ -62,6 +63,17 @@ jobs:
           mkdir -p _site
           cp trabalho/ResumoGerencialMapeamentoMillena/Dashboard_Millena_ATUAL.html _site/index.html
           cp painel/pwa/* _site/   # icones e manifesto para instalar no celular
+          mkdir -p _site/portal && cp portal/index.html _site/portal/ && cp painel/pwa/* _site/portal/   # portal com login (fase de teste)
+
+      - name: Guardar o painel na area privada (Supabase)
+        env:
+          SUPABASE_URL: https://dcdbsiuveisxoypcblzd.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_KEY" ]; then echo "::warning::segredo SUPABASE_SERVICE_KEY ainda nao configurado"; exit 0; fi
+          code=$(curl -s -o resp.txt -w "%{http_code}" -X POST "$SUPABASE_URL/storage/v1/object/paineis/millena/index.html"             -H "apikey: $SUPABASE_SERVICE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_KEY"             -H "x-upsert: true" -H "Content-Type: text/html; charset=utf-8" -H "Cache-Control: no-cache"             --data-binary @_site/index.html)
+          if [ "$code" -ge 300 ]; then echo "::error::Supabase respondeu $code: $(head -c 300 resp.txt)"; exit 1; fi
+          echo "::notice::Painel guardado na area privada (HTTP $code)"
 
       - uses: actions/cache/save@v4
         with:
