@@ -945,6 +945,39 @@ HTML = """<!DOCTYPE html>
     border-radius:99px;padding:3px 10px;font-size:12px;font-family:inherit;text-transform:none;letter-spacing:0;cursor:pointer}
   @media(max-width:1100px){.setor-lista{grid-template-columns:1fr}}
   @media(max-width:800px){.se-corpo{grid-template-columns:1fr}.se-setores{border-left:0;border-top:1px solid var(--border)}}
+
+  /* ── Saudacao e relogio no cabecalho ── */
+  .saudacao{display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:6px 14px 6px 6px}
+  .sd-avatar{width:40px;height:40px;border-radius:50%;border:2px solid var(--border);background:linear-gradient(135deg,var(--se),var(--al));
+    color:#fff;font-weight:700;font-size:14px;cursor:pointer;flex-shrink:0;font-family:inherit}
+  .sd-texto{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+  #sd-ola{font-size:12px;color:var(--muted)}
+  .sd-nome{background:none;border:0;padding:0;color:var(--white);font-weight:700;font-size:15px;cursor:pointer;text-align:left;font-family:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+  .sd-nome.vazio{font-size:12px;font-weight:600;color:var(--al);text-decoration:underline dotted}
+  .sd-recarregar{background:none;border:0;color:var(--muted);cursor:pointer;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+  .sd-recarregar:hover{color:var(--white);background:rgba(127,127,127,.15)}
+  .sd-recarregar.girando svg{animation:sdGira .6s linear infinite}
+  @keyframes sdGira{to{transform:rotate(360deg)}}
+  .sd-sep{width:1px;align-self:stretch;background:var(--border);margin:4px 0}
+  .sd-relogio{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+  #sd-data{font-size:12px;color:var(--muted);white-space:nowrap}
+  #sd-hora{font-size:22px;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+  /* ── Filtros escondidos ── */
+  .filtros-area{display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin-left:auto}
+  .filtros-btn{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  .filtros-btn:hover,.filtros-btn.ativo{border-color:var(--al);color:var(--white)}
+  .filtros-qtd{background:var(--al);color:#fff;border-radius:99px;font-size:11px;min-width:18px;height:18px;padding:0 5px;display:none;align-items:center;justify-content:center}
+  .filtros-qtd:not(:empty){display:inline-flex}
+  #filtros-painel:not(.aberto){display:none!important}
+  @media(max-width:900px){
+    .saudacao{padding:4px 8px 4px 4px;gap:8px}
+    .sd-avatar{width:34px;height:34px;font-size:12px}
+    .sd-texto,.sd-sep,#sd-data{display:none}
+    #sd-hora{font-size:16px}
+    .filtros-area{width:100%;align-items:stretch}
+    .filtros-btn{justify-content:center}
+  }
   /* ── Celular: ajustes finais (precisam vir por ultimo) ── */
   @media(max-width:900px){
     header{flex-wrap:nowrap!important;gap:10px}
@@ -971,7 +1004,17 @@ HTML = """<!DOCTYPE html>
     .table-wrap td .btn-ver{width:100%;padding:10px;font-size:13px}
     .table-wrap td:has(.btn-ver)::before{display:none}
     tr:hover td{background:transparent!important}
+    /* cabecalho em duas linhas: logo + titulo; saudacao + tema */
+    header{flex-wrap:wrap!important;row-gap:10px}
+    header .logo{flex:1 1 100%}
+    .tema-wrap{flex:1 1 100%;gap:8px}
+    .saudacao{flex:1;min-width:0}
+    .sd-texto{display:flex;flex:1}
+    .sd-nome{max-width:none}
+    .sd-sep,#sd-data{display:flex}
+    #sd-data{font-size:11px}
   }
+  @media(max-width:380px){ #sd-data,.sd-sep{display:none!important} .saudacao{gap:6px} }
 </style>
 </head>
 <body>
@@ -981,11 +1024,19 @@ HTML = """<!DOCTYPE html>
     <img class="logo-millena" src="LOGO_SRC_PLACEHOLDER" alt="Millena móveis e eletro">
     <div>
       <div class="logo-text">Millena - Status do Mapeamento de Atividades</div>
-      <div class="logo-sub">Gerado em DATE_HOJE</div>
+      <div class="logo-sub">Atualizado em HORA_REF</div>
     </div>
   </div>
   <div class="tema-wrap">
-    <div class="header-date">DATE_HOJE · DATE_HORA</div>
+    <div class="saudacao">
+      <button type="button" class="sd-avatar" id="sd-avatar" title="Informar seu nome">?</button>
+      <div class="sd-texto"><span id="sd-ola">Olá,</span>
+        <button type="button" class="sd-nome" id="sd-nome" title="Informar seu nome">Toque para se identificar</button></div>
+      <button type="button" class="sd-recarregar" id="sd-recarregar" title="Buscar dados novos" aria-label="Buscar dados novos">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+      <div class="sd-sep"></div>
+      <div class="sd-relogio"><span id="sd-data">DATE_HOJE</span><strong id="sd-hora">DATE_HORA</strong></div>
+    </div>
     <button type="button" class="tema-btn" id="tema-btn" aria-haspopup="true" aria-expanded="false" title="Trocar cores">🎨 <span>Tema</span></button>
     <div class="tema-pop" id="tema-pop" role="menu">
       <h4>Paleta de cores</h4>
@@ -1011,14 +1062,11 @@ HTML = """<!DOCTYPE html>
   <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
     <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
       <div class="section-title" style="margin-bottom:0">Visão Geral</div>
-      <div class="section-sub" style="margin-bottom:0">Mapeamento de atividades — DATE_HOJE</div>
+      <div class="section-sub" style="margin-bottom:0">Mapeamento de atividades — <span id="vg-hoje">DATE_HOJE</span></div>
     </div>
   </div>
   <div id="filtro-data-info" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:14px;padding:8px 14px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:8px"></div>
   ALERT_CRITICOS_HTML
-  <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <div style="font-size:14px;color:var(--white);white-space:nowrap">Atualizado em HORA_REF</div>
-  </div>
   <div class="empresa-toggle" style="margin-bottom:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="toggle-btn active" id="filtro-todas" onclick="filterEmpresa('todas')">Todas as filiais</button>
@@ -1026,7 +1074,11 @@ HTML = """<!DOCTYPE html>
       <button class="toggle-btn al" id="filtro-al" onclick="filterEmpresa('al')">Novatec Alagoas</button>
       <button class="toggle-btn re" id="filtro-rec" onclick="filterEmpresa('rec')">Novatec Recife</button>
     </div>
-    <div class="filtros-linha" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="filtros-area">
+    <button type="button" class="filtros-btn" id="filtros-btn" aria-expanded="false" aria-controls="filtros-painel">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+      Filtros <span class="filtros-qtd" id="filtros-qtd"></span></button>
+    <div class="filtros-linha" id="filtros-painel" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div class="filtro-periodo" style="display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px">
         <span style="font-size:11px;color:var(--muted);white-space:nowrap">📅 Período</span>
         <input type="date" id="filtro-data-de" onchange="aplicarFiltroData()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--text);font-size:11px;padding:3px 6px;font-family:'DM Mono',monospace;color-scheme:dark">
@@ -1043,6 +1095,7 @@ HTML = """<!DOCTYPE html>
           <option value="noite">Noite</option>
         </select>
       </div>
+    </div>
     </div>
   </div>
   <div class="cards" style="grid-template-columns:repeat(7,1fr)">
@@ -1702,6 +1755,8 @@ function _atualizarInfoFiltro(){
   const turno=document.getElementById('filtro-turno').value;
   const box=document.getElementById('filtro-data-info');
   const setorF=window._setorFiltro;
+  const qtd=(de||ate?1:0)+(turno&&turno!=='todos'?1:0);
+  const q=document.getElementById('filtros-qtd'); if(q){ q.textContent=qtd||''; q.style.display=qtd?'':'none'; }
   if(!de && !ate && (!turno||turno==='todos') && !setorF){ box.style.display='none'; return; }
   const fmt=iso=>iso?iso.split('-').reverse().join('/'):'';
   const partes=[];
@@ -2227,6 +2282,41 @@ function filterTable(tbodyId,q){
     r.style.display=r.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';
   });
 }
+
+// ── cabecalho: saudacao, relogio e recarregar ──
+const _MESES=['jan.','fev.','mar.','abr.','mai.','jun.','jul.','ago.','set.','out.','nov.','dez.'];
+const _DIAS=['dom.','seg.','ter.','qua.','qui.','sex.','sáb.'];
+function _nomeSalvo(){ try{ return localStorage.getItem('painel_nome')||''; }catch(e){ return ''; } }
+function _iniciais(n){ const p=n.trim().split(' ').filter(Boolean); return p.length?(p[0][0]+(p.length>1?p[p.length-1][0]:'')).toUpperCase():'?'; }
+function _atualizarSaudacao(){
+  const agora=new Date(), h=agora.getHours();
+  const ola=h<12?'Bom dia,':h<18?'Boa tarde,':'Boa noite,';
+  const nome=_nomeSalvo();
+  const el=id=>document.getElementById(id);
+  if(!el('sd-ola')) return;
+  el('sd-ola').textContent=ola;
+  el('sd-nome').textContent=nome||'Toque para se identificar';
+  el('sd-nome').classList.toggle('vazio',!nome);
+  el('sd-avatar').textContent=nome?_iniciais(nome):'?';
+  el('sd-data').textContent=_DIAS[agora.getDay()]+', '+agora.getDate()+' de '+_MESES[agora.getMonth()];
+  el('sd-hora').textContent=String(h).padStart(2,'0')+':'+String(agora.getMinutes()).padStart(2,'0');
+  const vg=el('vg-hoje'); if(vg) vg.textContent=agora.toLocaleDateString('pt-BR');
+}
+function _pedirNome(){
+  const atual=_nomeSalvo();
+  const n=window.prompt('Como você quer ser chamado neste painel?', atual);
+  if(n===null) return;
+  try{ n.trim()?localStorage.setItem('painel_nome',n.trim().slice(0,40)):localStorage.removeItem('painel_nome'); }catch(e){}
+  _atualizarSaudacao();
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest&&e.target.closest('#sd-nome,#sd-avatar,#sd-recarregar,#filtros-btn'); if(!t) return;
+  if(t.id==='sd-recarregar'){ t.classList.add('girando'); setTimeout(()=>location.reload(),350); return; }
+  if(t.id==='filtros-btn'){ const p=document.getElementById('filtros-painel'); const ab=!p.classList.contains('aberto');
+    p.classList.toggle('aberto',ab); t.setAttribute('aria-expanded',ab); t.classList.toggle('ativo',ab); return; }
+  _pedirNome();
+});
+_atualizarSaudacao(); setInterval(_atualizarSaudacao, 15*1000);
 function _corTema(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()||'#888';}
 const _TEMAS=[
   {id:'',nome:'Escuro',cores:['#0d1117','#161b22','#7c3aed']},
