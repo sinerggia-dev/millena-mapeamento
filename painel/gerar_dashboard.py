@@ -132,6 +132,13 @@ if ESTADO_FILE.exists():
 
 
 # ── Processamento ─────────────────────────────────────────────────────────────
+def _txt(v):
+    if v is None: return ''
+    if isinstance(v, bool): return 'Sim' if v else 'Não'
+    if isinstance(v, datetime): return v.strftime('%d/%m/%Y, %H:%M:%S')
+    return v
+
+
 def processar(rel, usr, empresa):
     # Remove entradas com nome iniciando em "Inativo devido ao e-mail"
     usr = [u for u in usr if not u.get('Nome', '').strip().lower().startswith('inativo devido ao e-mail')]
@@ -238,6 +245,13 @@ def processar(rel, usr, empresa):
                 'pontos_criticos': r.get('Pontos críticos', ''),
                 'sugestoes': r.get('Sugestões de melhoria', ''),
                 'criada_em': r.get('Criada em', ''),
+                'empresa': _txt(r.get('Empresa', '')),
+                'horario_fixo': _txt(r.get('Horário fixo', '')),
+                'decisao_gestor': _txt(r.get('Decisão gestor', '')),
+                'decisao_consultor': _txt(r.get('Decisão consultor', '')),
+                'edicoes': _txt(r.get('Edições do consultor', '')),
+                'parecer': _txt(r.get('Parecer do consultor', '')),
+                'atualizada_em': _txt(r.get('Atualizada em', '')),
             })
 
     # Pendentes = total cadastrados - cadastrados que enviaram (garante consistência nos cartões)
@@ -1436,7 +1450,7 @@ HTML = """<!DOCTYPE html>
       <button class="toggle-btn al" id="atv-toggle-al" onclick="atvToggle('al')">Alagoas — AL_ATV atividades</button>
       <button class="toggle-btn re" id="atv-toggle-rec" onclick="atvToggle('rec')">Recife — RE_ATV atividades</button>
     </div>
-    <button onclick="exportarAtividades()" style="display:inline-flex;align-items:center;gap:8px;background:#7c3aed;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+    <button onclick="exportarAtividades(event)" style="display:inline-flex;align-items:center;gap:8px;background:#7c3aed;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;color:#fff;cursor:pointer;font-family:Inter,sans-serif;transition:opacity .15s" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Exportar Excel
     </button>
@@ -2100,37 +2114,86 @@ function exportarEnviaram(){
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
-function exportarAtividades(){
-  const toggles={al:'atv-toggle-al',se:'atv-toggle-se',rec:'atv-toggle-rec'};
-  let empAtiva='todas';
-  for(const [e,id] of Object.entries(toggles)){
-    const btn=document.getElementById(id);
-    if(btn && btn.classList.contains('active')){empAtiva=e;break;}
-  }
-  const fontes={
-    al:{filial:'Novatec Alagoas', lista:EMP('alagoas').atividades},
-    se:{filial:'Millena', lista:EMP('sergipe').atividades},
-    rec:{filial:'Novatec Recife', lista:EMP('recife').atividades},
-  };
-  const selecionadas=empAtiva==='todas'?Object.values(fontes):[fontes[empAtiva]];
-  const linhas=[['Filial','Funcionário','Horário','Turno','Cargo','Setor','Atividade','Detalhamento','Periodicidade','Tempo','Status']];
-  const _turnoNome={manha:'Manhã',tarde:'Tarde',noite:'Noite'};
-  selecionadas.forEach(({filial,lista})=>{
-    lista.forEach(a=>{
-      const _h=_extrairHorario(a.criada_em);
-      const _t=_classificarTurno(a.criada_em);
-      linhas.push([filial,a.funcionario,_h?_h.texto:'',_t?_turnoNome[_t]:'',a.cargo,a.setor,a.nome,(a.detalhamento||'').replace(/\\r?\\n/g,' | '),a.periodicidade,a.tempo,a.status]);
-    });
+// ── Exportar atividades no formato do modelo do mapeia ──
+const _XL_COLS=[['#',5],['Empresa',16],['Setor',18],['Funcionário',20],['Cargo',20],['Nome',30],['Detalhamento',55],
+  ['Periodicidade',16],['Como realiza',16],['Tempo',9],['Horário fixo',12],['Pontos críticos',34],['Sugestões de melhoria',34],
+  ['Status',14],['Decisão gestor',14],['Decisão consultor',14],['Edições do consultor',12],['Parecer do consultor',40],
+  ['Criada em',20],['Atualizada em',20]];
+function _xlData(v){
+  if(v===null||v===undefined||v==='') return '';
+  const s=String(v);
+  if(s.length>=19&&s[4]==='-'&&s[10]==='T'){ const d=new Date(s); if(!isNaN(d)) return d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}); }
+  return s;
+}
+function _xlSN(v){ if(v===true) return 'Sim'; if(v===false) return 'Não'; return v===null||v===undefined?'':v; }
+function _xlLinha(a,i,extra){
+  extra=extra||{};
+  const st=String(a.status||'');
+  const dg=a.decisao_gestor||(st.toLowerCase().indexOf('aguardando gestor')===0?'Aguardando':'');
+  const ed=(a.edicoes===''||a.edicoes===null||a.edicoes===undefined)?0:(isNaN(Number(a.edicoes))?a.edicoes:Number(a.edicoes));
+  return [i+1,a.empresa||'Millena',a.setor||extra.setor||'',a.funcionario||extra.nome||'',a.cargo||extra.cargo||'',
+    a.nome||'',a.detalhamento||'',a.periodicidade||'',a.como_realiza||'',a.tempo||'',_xlSN(a.horario_fixo),
+    a.pontos_criticos||'',a.sugestoes||'',st,dg,a.decisao_consultor||'—',ed,a.parecer||'',
+    _xlData(a.criada_em),_xlData(a.atualizada_em||a.criada_em)];
+}
+function _carregarExcelJS(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return new Promise((ok,erro)=>{
+    const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+    sc.onload=()=>ok(window.ExcelJS); sc.onerror=erro; document.head.appendChild(sc);
   });
-  const csv=linhas.map(r=>r.map(c=>'"'+String(c||'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');
-  const hoje=new Date().toLocaleDateString('pt-BR').replace(/\//g,'');
-  const sufixo=empAtiva==='todas'?'Todas':fontes[empAtiva].filial.replace(/\s+/g,'_');
-  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url; a.download='Atividades_'+sufixo+'_'+hoje+'.csv';
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function _baixarArquivo(blob,nome){
+  const u=URL.createObjectURL(blob), l=document.createElement('a'); l.href=u; l.download=nome;
+  document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),3000);
+}
+function _exportarModelo(linhas,base,btn){
+  const txt=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='Gerando…'; }
+  return _carregarExcelJS().then(EJ=>{
+    const wb=new EJ.Workbook();
+    const ws=wb.addWorksheet('Atividades',{views:[{state:'frozen',ySplit:1}]});
+    ws.columns=_XL_COLS.map(c=>({header:c[0],width:c[1]}));
+    linhas.forEach(l=>ws.addRow(l));
+    const fonte={name:'Calibri',size:10,color:{argb:'FF1F2937'}};
+    const linhaBorda={bottom:{style:'thin',color:{argb:'FFE5E7EB'}}};
+    ws.eachRow({includeEmpty:true},(row,n)=>{
+      row.eachCell({includeEmpty:true},(c,col)=>{
+        if(n===1){
+          c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD9222A'}};
+          c.font={name:'Calibri',size:10,bold:true,color:{argb:'FFFFFFFF'}};
+          c.alignment={vertical:'middle',horizontal:'left',wrapText:true};
+          return;
+        }
+        c.font=fonte; c.border=linhaBorda;
+        c.alignment={vertical:'middle',wrapText:true,horizontal:(col===1||col===10||col===17)?'right':'left'};
+        if(n%2===1) c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF5F6F8'}};
+        if(col===15&&String(c.value||'').toLowerCase().indexOf('aguard')===0)
+          c.font={name:'Calibri',size:10,bold:true,color:{argb:'FFD97706'}};
+      });
+    });
+    ws.getRow(1).height=26;
+    ws.autoFilter={from:{row:1,column:1},to:{row:1,column:_XL_COLS.length}};
+    return wb.xlsx.writeBuffer();
+  }).then(buf=>{
+    _baixarArquivo(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),base+'.xlsx');
+  }).catch(()=>{
+    const cab=_XL_COLS.map(c=>c[0]);
+    const csv=[cab,...linhas].map(r=>r.map(c=>'"'+String(c===null||c===undefined?'':c).split('"').join('""')+'"').join(';')).join(String.fromCharCode(13,10));
+    _baixarArquivo(new Blob([String.fromCharCode(65279)+csv],{type:'text/csv;charset=utf-8'}),base+'.csv');
+  }).finally(()=>{ if(btn){ btn.disabled=false; btn.innerHTML=txt; } });
+}
+function _hojeArq(){ return new Date().toLocaleDateString('pt-BR').split('/').join(''); }
+function exportarAtividades(ev){
+  const lista=EMP('sergipe').atividades||[];
+  const btn=ev&&ev.currentTarget?ev.currentTarget:null;
+  _exportarModelo(lista.map((a,i)=>_xlLinha(a,i)),'Atividades_Millena_'+_hojeArq(),btn);
+}
+function exportarAtividadesPessoa(){
+  const at=window._vaAtual; if(!at||!at.lista.length) return;
+  const pessoa=[...(EMP('sergipe').enviaram_list||[]),...(EMP('sergipe').nao_enviaram_list||[])].find(p=>_normJS(p.nome)===_normJS(at.nome))||{};
+  const extra={nome:at.nome,cargo:pessoa.cargo,setor:pessoa.setor};
+  _exportarModelo(at.lista.map((a,i)=>_xlLinha(a,i,extra)),'Atividades_'+at.nome.trim().split(' ').join('_')+'_'+_hojeArq(),document.getElementById('va-exportar'));
 }
 function exportarAnalise(){
   const fontes=[
@@ -2448,27 +2511,6 @@ function _carregarXLSX(){
     sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
     sc.onload=()=>ok(window.XLSX); sc.onerror=erro; document.head.appendChild(sc);
   });
-}
-function exportarAtividadesPessoa(){
-  const at=window._vaAtual; if(!at||!at.lista.length) return;
-  const pessoa=[...(EMP('sergipe').enviaram_list||[]),...(EMP('sergipe').nao_enviaram_list||[])].find(p=>_normJS(p.nome)===_normJS(at.nome))||{};
-  const cab=['Nº','Funcionário','Cargo','Setor','Atividade','Detalhamento','Periodicidade','Como realiza','Tempo','Status','Enviada em','Pontos críticos','Sugestões de melhoria'];
-  const linhas=at.lista.map((a,i)=>[i+1,at.nome,a.cargo||pessoa.cargo||'',a.setor||pessoa.setor||'',a.nome||'',a.detalhamento||'',a.periodicidade||'',a.como_realiza||'',a.tempo||'',a.status||'',_dataHora(a.criada_em),a.pontos_criticos||'',a.sugestoes||'']);
-  const hoje=new Date().toLocaleDateString('pt-BR').split('/').join('');
-  const base='Atividades_'+at.nome.trim().split(' ').join('_')+'_'+hoje;
-  const btn=document.getElementById('va-exportar'); const txt=btn.textContent; btn.textContent='Gerando…'; btn.disabled=true;
-  _carregarXLSX().then(X=>{
-    const ws=X.utils.aoa_to_sheet([cab,...linhas]);
-    ws['!cols']=[6,22,26,18,34,70,14,14,8,16,18,40,40].map(w=>({wch:w}));
-    ws['!autofilter']={ref:'A1:M'+(linhas.length+1)};
-    const wb=X.utils.book_new(); X.utils.book_append_sheet(wb,ws,'Atividades');
-    X.writeFile(wb,base+'.xlsx');
-  }).catch(()=>{
-    const csv=[cab,...linhas].map(r=>r.map(c=>'"'+String(c).split('"').join('""')+'"').join(';')).join(String.fromCharCode(13,10));
-    const blob=new Blob([String.fromCharCode(65279)+csv],{type:'text/csv;charset=utf-8'});
-    const u=URL.createObjectURL(blob), l=document.createElement('a'); l.href=u; l.download=base+'.csv';
-    document.body.appendChild(l); l.click(); l.remove(); URL.revokeObjectURL(u);
-  }).finally(()=>{btn.textContent=txt; btn.disabled=false;});
 }
 function fecharAtividades(){document.getElementById('modal-atividades').style.display='none';document.body.style.overflow='';}
 document.addEventListener('click',e=>{

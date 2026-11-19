@@ -86,6 +86,12 @@ _SINONIMOS = {
     "Criada em": ["criadaem", "criadoem", "createdat", "datacriacao"],
     "Atualizada em": ["atualizadaem", "atualizadoem", "updatedat"],
     "Status": ["status", "statusgeral", "situacao"],
+    "Empresa": ["empresa", "empresanome", "filial"],
+    "Horário fixo": ["horariofixo", "temhorariofixo", "horario"],
+    "Decisão gestor": ["decisaogestor", "decisaodogestor", "statusgestor"],
+    "Decisão consultor": ["decisaoconsultor", "decisaodoconsultor", "statusconsultor"],
+    "Edições do consultor": ["edicoesdoconsultor", "edicoesconsultor", "edicoes", "qtdedicoes"],
+    "Parecer do consultor": ["parecerdoconsultor", "parecerconsultor", "parecer"],
 }
 
 
@@ -140,7 +146,7 @@ def main():
     # atividades da API
     brutas = _lista(_get({"recurso": "atividades", "formato": "json", "empresa": _id_empresa()}))
     if brutas:
-        print("Campos da API:", sorted(brutas[0].keys()))
+        print("::notice::Campos da API: " + ", ".join(sorted(brutas[0].keys())))
     atv = [_padronizar(a) for a in brutas]
     # garante que so entra a empresa do painel, mesmo se a chave enxergar outras
     outras = {a.get("Empresa") for a in atv} - {EMPRESA, ""}
