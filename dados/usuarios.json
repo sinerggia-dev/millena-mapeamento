@@ -1,6 +1,14 @@
 {
- "atualizado_em": "16/11/2026 14:45",
+ "atualizado_em": "19/11/2026 10:21",
  "usuarios": [
+  {
+   "nome": "Adriely",
+   "cargo": "Técnico de TI PL",
+   "empresa": "Millena",
+   "setor": "TI Técnica",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
   {
    "nome": "Alan Pereira",
    "cargo": "Analista Administrativo Júnior",
@@ -18,10 +26,10 @@
    "status": "Ativo"
   },
   {
-   "nome": "Betânia",
-   "cargo": "Auxiliar Administrativo/Financeiro",
+   "nome": "Arthur Willams Silva de Santana",
+   "cargo": "Suporte TI Pleno",
    "empresa": "Millena",
-   "setor": "Conferência de Caixa",
+   "setor": "TI Técnica",
    "perfil": "Funcionário",
    "status": "Ativo"
   },
@@ -46,7 +54,7 @@
    "cargo": "Auxiliar Administrativo/Financeiro",
    "empresa": "Millena",
    "setor": "Conciliação",
-   "perfil": "Funcionário",
+   "perfil": "Gestor",
    "status": "Ativo"
   },
   {
@@ -70,6 +78,14 @@
    "cargo": "Auxiliar Administrativo/Financeiro",
    "empresa": "Millena",
    "setor": "Contas a Pagar",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Jéssica Vitória Martins de Sousa Cirne",
+   "cargo": "Analista de Automação Jr.",
+   "empresa": "Millena",
+   "setor": "TI Técnica",
    "perfil": "Funcionário",
    "status": "Ativo"
   },
@@ -98,6 +114,14 @@
    "status": "Ativo"
   },
   {
+   "nome": "Luiz Felipe Silva Cavalcanti",
+   "cargo": "Assistente Técnico de TI (Pleno)",
+   "empresa": "Millena",
+   "setor": "TI Técnica",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
    "nome": "Luiza Aroucha",
    "cargo": "Auxiliar Administrativo",
    "empresa": "Millena",
@@ -122,10 +146,26 @@
    "status": "Ativo"
   },
   {
+   "nome": "Marcos Mateus",
+   "cargo": "Coordenador",
+   "empresa": "Millena",
+   "setor": "TI Técnica",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
    "nome": "Maria Beatriz",
    "cargo": "Assistente Administrativo/Financeiro",
    "empresa": "Millena",
    "setor": "Conciliação",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Maria Betânia Silva dos Santos",
+   "cargo": "Auxiliar Administrativo/Financeiro",
+   "empresa": "Millena",
+   "setor": "Conferência de Caixa",
    "perfil": "Funcionário",
    "status": "Ativo"
   },
@@ -158,6 +198,22 @@
    "cargo": "Assistente Administrativo/Financeiro",
    "empresa": "Millena",
    "setor": "Conciliação",
+   "perfil": "Funcionário",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Suely Silva do Carmo",
+   "cargo": "Gerente de TI",
+   "empresa": "Millena",
+   "setor": "TI",
+   "perfil": "Gestor",
+   "status": "Ativo"
+  },
+  {
+   "nome": "Syresson Chrystian da Paz Almeida",
+   "cargo": "Técnico de TI PL",
+   "empresa": "Millena",
+   "setor": "TI Técnica",
    "perfil": "Funcionário",
    "status": "Ativo"
   },
