@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: usuarios
-  cancel-in-progress: false
+  cancel-in-progress: true   # execucao nova cancela a que estiver rodando
 
 jobs:
   usuarios:
