@@ -963,6 +963,7 @@ HTML = """<!DOCTYPE html>
   .sd-relogio{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
   #sd-data{font-size:12px;color:var(--muted);white-space:nowrap}
   #sd-hora{font-size:22px;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+  #filtro-data-info{display:none!important}  /* aviso amarelo removido: o botao Filtros (n) indica o filtro */
   #card-novas{cursor:pointer}
   #card-novas:hover{border-color:#f59e0b}
   #card-novas.novas-ativo{border-color:#f59e0b;box-shadow:0 0 0 2px rgba(245,158,11,.45)}
