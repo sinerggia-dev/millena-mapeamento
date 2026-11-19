@@ -18,9 +18,9 @@ concurrency:
 
 jobs:
   atualizar:
-    # Liga/desliga o agendamento: variavel do repositorio PAINEL_ATIVO = true.
+    # Liga/desliga o agendamento: existir a variavel PAINEL_ATIVO (qualquer valor) liga; apagar desliga.
     # O botao "Run workflow" funciona sempre.
-    if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO == 'true'
+    if: github.event_name == 'workflow_dispatch' || vars.PAINEL_ATIVO != ''
     runs-on: ubuntu-24.04   # fixo: o ubuntu-latest esta migrando de versao
     environment:
       name: github-pages

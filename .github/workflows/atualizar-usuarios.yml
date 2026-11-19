@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   usuarios:
-    if: github.event_name != 'schedule' || vars.PAINEL_ATIVO == 'true'
+    if: github.event_name != 'schedule' || vars.PAINEL_ATIVO != ''
     runs-on: ubuntu-24.04   # fixo: o ubuntu-latest esta migrando de versao
     env:
       TZ: America/Sao_Paulo
