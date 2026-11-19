@@ -44,6 +44,19 @@ def main():
         b = p.chromium.launch()
         ctx = b.new_context(accept_downloads=True)
         page = ctx.new_page()
+        respostas_login = []
+
+        def _resp(r):
+            # so registra falhas do login (codigo + mensagem de erro); sucesso traz tokens e nao e lido
+            if "/auth/v1/token" in r.url and r.status >= 400:
+                try:
+                    j = r.json()
+                    msg = j.get("error_description") or j.get("msg") or j.get("message") or j.get("error_code") or ""
+                except Exception:
+                    msg = ""
+                respostas_login.append(f"{r.status} {msg}"[:160])
+        page.on("response", _resp)
+
         entrou = False
         for tent in range(3):
             page.goto("https://mapeia.sinerggia.com.br/login", wait_until="networkidle")
@@ -64,7 +77,9 @@ def main():
                 avisos = page.locator('[role="alert"], [data-sonner-toast], .text-destructive, .text-red-500')
                 textos = [t.strip() for t in avisos.all_inner_texts() if t.strip()]
                 print(f"::warning::login tentativa {tent + 1}: nao entrou. Aviso na tela: {textos or 'nenhum'}; "
-                      f"url={page.url.split('?')[0]}; email preenchido={bool(EMAIL.strip())}; senha preenchida={bool(SENHA.strip())}")
+                      f"url={page.url.split('?')[0]}; resposta do login={respostas_login or 'nenhuma requisicao de login'}; "
+                      f"tamanho do e-mail={len(EMAIL.strip())}, da senha={len(SENHA.strip())}")
+                respostas_login.clear()
         if not entrou:
             print("::error::login no mapeia falhou (confira MAPEIA_EMAIL e MAPEIA_SENHA nos segredos)")
             sys.exit(1)
