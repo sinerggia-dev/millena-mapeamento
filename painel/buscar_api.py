@@ -8,7 +8,7 @@ gerar_dashboard.py funcionar sem mudancas.
 Uso: python buscar_api.py <pasta_de_trabalho>
 A chave vem da variavel de ambiente MAPEIA_API_KEY (segredo do repositorio).
 """
-import json, os, sys, shutil, gzip
+import json, os, sys, shutil, gzip, unicodedata
 import urllib.request, urllib.parse, urllib.error
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +72,39 @@ def _id_empresa():
              f"Resposta: {json.dumps(filtros, ensure_ascii=False)[:500]}")
 
 
+def _chave(s):
+    """'Funcionário', 'funcionario', 'decisao_gestor' -> 'funcionario', 'decisaogestor'."""
+    s = unicodedata.normalize("NFD", str(s)).encode("ascii", "ignore").decode().lower()
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+# nomes alternativos que a API pode usar para cada coluna do Excel
+_SINONIMOS = {
+    "Funcionário": ["funcionario", "funcionarionome", "colaborador", "usuario", "autor"],
+    "Nome": ["nome", "titulo", "atividade", "nomeatividade"],
+    "Criada em": ["criadaem", "criadoem", "createdat", "datacriacao"],
+    "Atualizada em": ["atualizadaem", "atualizadoem", "updatedat"],
+    "Status": ["status", "statusgeral", "situacao"],
+}
+
+
+def _padronizar(a):
+    """Devolve a atividade com as chaves exatamente como as colunas do Excel antigo."""
+    idx = {_chave(k): v for k, v in a.items()}
+    out = {}
+    for c in COLS_REL[1:]:
+        for k in [_chave(c)] + _SINONIMOS.get(c, []):
+            if k in idx and idx[k] is not None:
+                v = idx[k]
+                if isinstance(v, dict):  # ex.: {"nome": "..."}
+                    v = v.get("nome") or v.get("name") or ""
+                out[c] = v
+                break
+        else:
+            out[c] = ""
+    return out
+
+
 def _horas(t):
     try:
         h, m = str(t).split(":")[:2]
@@ -104,8 +137,18 @@ def main():
     (trab / "config.json").write_text(json.dumps({"prazo": CFG.get("prazo", "")}), encoding="utf-8")
 
     # atividades da API
-    atv = _lista(_get({"recurso": "atividades", "formato": "json", "empresa": _id_empresa()}))
-    print(f"API: {len(atv)} atividades de {EMPRESA}")
+    brutas = _lista(_get({"recurso": "atividades", "formato": "json", "empresa": _id_empresa()}))
+    if brutas:
+        print("Campos da API:", sorted(brutas[0].keys()))
+    atv = [_padronizar(a) for a in brutas]
+    # garante que so entra a empresa do painel, mesmo se a chave enxergar outras
+    outras = {a.get("Empresa") for a in atv} - {EMPRESA, ""}
+    if outras:
+        print(f"Ignorando atividades de outras empresas: {sorted(outras)}")
+    atv = [a for a in atv if a.get("Empresa") in (EMPRESA, "")]
+    sem_func = sum(not str(a.get("Funcionário", "")).strip() for a in atv)
+    print(f"API: {len(atv)} atividades de {EMPRESA} ({len({a.get('Funcionário') for a in atv})} funcionarios; "
+          f"{sem_func} sem funcionario)")
     linhas = [COLS_REL]
     for i, a in enumerate(atv, 1):
         linhas.append([i] + [a.get(c, "") if a.get(c) is not None else "" for c in COLS_REL[1:]])
