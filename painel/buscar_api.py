@@ -86,6 +86,8 @@ _SINONIMOS = {
     "Criada em": ["criadaem", "criadoem", "createdat", "datacriacao"],
     "Atualizada em": ["atualizadaem", "atualizadoem", "updatedat"],
     "Status": ["status", "statusgeral", "situacao"],
+    "Sugestões de melhoria": ["sugestoesdemelhoria", "sugestoesmelhoria", "sugestoes", "sugestao"],
+    "Pontos críticos": ["pontoscriticos", "pontocritico"],
     "Empresa": ["empresa", "empresanome", "filial"],
     "Horário fixo": ["horariofixo", "temhorariofixo", "horario"],
     "Decisão gestor": ["decisaogestor", "decisaodogestor", "statusgestor"],
