@@ -44,11 +44,28 @@ def main():
         b = p.chromium.launch()
         ctx = b.new_context(accept_downloads=True)
         page = ctx.new_page()
-        page.goto("https://mapeia.sinerggia.com.br/login")
-        page.fill('input[type="email"]', EMAIL)
-        page.fill('input[type="password"]', SENHA)
-        page.click('button[type="submit"]')
-        page.wait_for_url(lambda u: "login" not in u.lower(), timeout=30_000)
+        entrou = False
+        for tent in range(3):
+            page.goto("https://mapeia.sinerggia.com.br/login", wait_until="networkidle")
+            campo_email = page.locator('input[type="email"], input[name="email"], input[placeholder*="mail" i]').first
+            campo_email.wait_for(state="visible", timeout=20_000)
+            time.sleep(2)  # deixa a pagina terminar de montar antes de digitar
+            campo_email.fill(EMAIL.strip())
+            time.sleep(0.5)
+            page.locator('input[type="password"]').first.fill(SENHA.strip())
+            time.sleep(0.5)
+            page.locator('button[type="submit"], button:has-text("Entrar"), button:has-text("Acessar")').first.click()
+            try:
+                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=30_000)
+                entrou = True
+                break
+            except Exception:
+                # mostra so o aviso da tela (sem e-mail nem senha) para saber o motivo
+                avisos = page.locator('[role="alert"], [data-sonner-toast], .text-destructive, .text-red-500')
+                textos = [t.strip() for t in avisos.all_inner_texts() if t.strip()]
+                print(f"login tentativa {tent + 1}: nao entrou. Aviso na tela: {textos or 'nenhum'}")
+        if not entrou:
+            sys.exit("ERRO: login no mapeia falhou (confira MAPEIA_EMAIL e MAPEIA_SENHA nos segredos)")
         for tent in range(3):
             try:
                 page.goto("https://mapeia.sinerggia.com.br/admin/usuarios")
