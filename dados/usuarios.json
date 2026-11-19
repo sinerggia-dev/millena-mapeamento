@@ -1,5 +1,5 @@
 {
- "atualizado_em": "19/11/2026 10:21",
+ "atualizado_em": "19/11/2026 15:30",
  "usuarios": [
   {
    "nome": "Adriely",
@@ -87,14 +87,6 @@
    "empresa": "Millena",
    "setor": "TI Técnica",
    "perfil": "Funcionário",
-   "status": "Ativo"
-  },
-  {
-   "nome": "Karla Fernanda",
-   "cargo": "Gerente",
-   "empresa": "Millena",
-   "setor": "Gestão",
-   "perfil": "Gestor",
    "status": "Ativo"
   },
   {
